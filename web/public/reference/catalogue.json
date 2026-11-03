@@ -1,0 +1,348 @@
+{
+  "source": "Public static constants in index-CL_bMq9t.js and credential-free capture asset URLs; video URLs remain reference evidence and were not downloaded.",
+  "home": {
+    "tabs": [
+      {
+        "label": "剧本",
+        "value": "novel"
+      },
+      {
+        "label": "剧集",
+        "value": "series"
+      },
+      {
+        "label": "画布",
+        "value": "canvas"
+      }
+    ],
+    "defaultTab": "series",
+    "genreCards": [
+      {
+        "code": 2,
+        "title": "精品漫",
+        "icon": "/reference/c3086dce0391-c2548724.lg71z5.svg",
+        "cover": "/reference/01b70d1cc0ac-585c69eb.409i5j.webp",
+        "video": "https://imgservices-1252317822.image.myqcloud.com/coco/s10142026/72776fb4.xgmyrn.webm"
+      },
+      {
+        "code": 4,
+        "title": "真人剧",
+        "icon": "/reference/285fee673179-403a5b6f.re0vg7.svg",
+        "cover": "/reference/9b5b74b5ca07-dacd2e09.qvxu22.webp",
+        "video": "https://imgservices-1252317822.image.myqcloud.com/coco/s10142026/61d1f691.v32vos.webm"
+      },
+      {
+        "code": 3,
+        "title": "漫剧解说",
+        "icon": "/reference/00691342b852-6f9e1e78.y6cv4t.svg",
+        "cover": "/reference/c18fa7aa967a-6e33234b.ga61rr.webp",
+        "video": "https://imgservices-1252317822.image.myqcloud.com/coco/b10142026/1cd17e89.a7jya3.webm"
+      },
+      {
+        "code": 5,
+        "title": "转绘出海",
+        "icon": "/reference/89c0495a99a5-6865106a.rg9elv.svg",
+        "cover": "/reference/1e3a9cad3eec-8e468970.l40z6s.webp",
+        "video": "https://imgservices-1252317822.image.myqcloud.com/coco/b10142026/056b2c4c.km492j.webm"
+      }
+    ],
+    "featuresByTab": {
+      "novel": [
+        {
+          "key": "authorizedNovel",
+          "title": "授权小说",
+          "description": "超十万精品 IP，改编你爱的好故事。",
+          "image": "/reference/b94828019835-998e0e7e.hypqph.webp",
+          "hoverImage": "/assets/landing-ip-hover.png",
+          "tint": "rgba(46,57,107,0.2)",
+          "path": "/create?mode=novel&tab=1"
+        },
+        {
+          "key": "sampleTrial",
+          "title": "合作试稿",
+          "description": "每周开放书单，自由提交试稿。",
+          "image": "/reference/8eb758adb2f0-8fb1c54b.2j91uk.webp",
+          "tint": "rgba(23,41,87,0.2)",
+          "path": "/marketplace/sample-cooperation"
+        }
+      ],
+      "series": [
+        {
+          "key": "seedance",
+          "title": "Seedance 2.5 超长视频",
+          "description": "单次时长30-120s，多镜头片段，角色画风跨镜一致，台词音效同步生成，无需剪辑拼接。",
+          "image": "/reference/a123e3e02bcf-f0440578.jfziz8.webp",
+          "video": "https://imgservices-1252317822.image.myqcloud.com/coco/b10142026/ff2b7a68.r5xrqu.webm",
+          "tint": "rgba(3,33,72,0.2)"
+        },
+        {
+          "key": "seedAudio",
+          "title": "Seed Audio 1.0",
+          "description": "音频模型全面升级为「Seed Audio 1.0」音色一致性强，支持多语种多情绪切换。",
+          "image": "/reference/5321bf516ea2-c231d282.tck9b0.webp",
+          "video": "https://imgservices-1252317822.image.myqcloud.com/coco/b10142026/64b4ea62.fzivmu.webm",
+          "tint": "rgba(96,147,163,0.2)"
+        },
+        {
+          "key": "gridNode",
+          "title": "宫格图节点",
+          "description": "支持宫格节点内图片拖拽切换顺序、一键超清拼接。",
+          "image": "/reference/9ce34ee95c4c-2fc3cd41.bbgqdh.webp",
+          "tint": "rgba(79,82,154,0.2)"
+        },
+        {
+          "key": "director",
+          "title": "智能导演",
+          "description": "轻松搞定长镜头提示词，搭配 Seedance 2.0 使用效果更佳。",
+          "image": "/reference/5dab6f9f7a35-aa7df2bc.n7r6aa.webp",
+          "tint": "rgba(27,91,223,0.2)"
+        }
+      ],
+      "canvas": [
+        {
+          "key": "seedance",
+          "title": "Seedance 2.5 超长视频",
+          "description": "单次时长30-120s，多镜头片段，角色画风跨镜一致，台词音效同步生成，无需剪辑拼接。",
+          "image": "/reference/a123e3e02bcf-f0440578.jfziz8.webp",
+          "video": "https://imgservices-1252317822.image.myqcloud.com/coco/b10142026/ff2b7a68.r5xrqu.webm",
+          "tint": "rgba(3,33,72,0.2)"
+        },
+        {
+          "key": "seedAudio",
+          "title": "Seed Audio 1.0",
+          "description": "音频模型全面升级为「Seed Audio 1.0」音色一致性强，支持多语种多情绪切换。",
+          "image": "/reference/5321bf516ea2-c231d282.tck9b0.webp",
+          "video": "https://imgservices-1252317822.image.myqcloud.com/coco/b10142026/64b4ea62.fzivmu.webm",
+          "tint": "rgba(96,147,163,0.2)"
+        },
+        {
+          "key": "gridNode",
+          "title": "宫格图节点",
+          "description": "支持宫格节点内图片拖拽切换顺序、一键超清拼接。",
+          "image": "/reference/9ce34ee95c4c-2fc3cd41.bbgqdh.webp",
+          "tint": "rgba(79,82,154,0.2)"
+        },
+        {
+          "key": "director",
+          "title": "智能导演",
+          "description": "轻松搞定长镜头提示词，搭配 Seedance 2.0 使用效果更佳。",
+          "image": "/reference/5dab6f9f7a35-aa7df2bc.n7r6aa.webp",
+          "tint": "rgba(27,91,223,0.2)"
+        }
+      ]
+    },
+    "marketCards": [
+      {
+        "key": "scriptMarket",
+        "title": "爆款剧本",
+        "description": "购买热门剧本，发起定制需求",
+        "action": "挑剧本",
+        "image": "/reference/27d5913cbae2-08b16bac.69o0or.webp",
+        "path": "/marketplace/script-market"
+      },
+      {
+        "key": "bizSquare",
+        "title": "接单广场",
+        "description": "汇聚优质、真实承制商单",
+        "action": "接商单",
+        "image": "/reference/ef4db3f8fde6-ed3af324.9pod8z.webp",
+        "path": "/marketplace/biz-square"
+      },
+      {
+        "key": "sampleCooperation",
+        "title": "合作试稿",
+        "description": "每周开放书单，自由提交试稿",
+        "action": "选小说",
+        "image": "/reference/42d59e8fd485-ff2e3ec3.ehsro9.webp",
+        "path": "/marketplace/sample-cooperation"
+      }
+    ],
+    "legacyCards": [
+      {
+        "code": 0,
+        "title": "生态市场",
+        "image": "/reference/b13379eaccb1-463e6159.7nphq2.png",
+        "description": "阅文海量IP每周更新",
+        "url": "/marketplace",
+        "disabled": false,
+        "action": "navigate"
+      },
+      {
+        "code": 1,
+        "title": "剧本创作",
+        "image": "/reference/b0d180c4d762-43b3243a.ndlvpg.png",
+        "description": "根据小说创作剧本",
+        "url": "/create?mode=novel&tab=1",
+        "disabled": false,
+        "action": "navigate"
+      },
+      {
+        "code": 2,
+        "title": "精品漫",
+        "image": "/reference/ebf96b63b41c-69dcaed2.sqrk9y.png",
+        "description": "创作漫剧作品，支持从小说、剧本、分镜开始",
+        "url": "",
+        "disabled": false,
+        "action": "modal",
+        "modalKey": "comic",
+        "dramaType": 1
+      },
+      {
+        "code": 3,
+        "title": "解说漫",
+        "image": "/reference/bb0f32a9b410-c47bd762.f6na6a.png",
+        "description": "以单人解说视角创作漫剧，从授权书单选择小说、上传剧本开始",
+        "url": "/narrated/create",
+        "disabled": false,
+        "action": "navigate",
+        "dramaType": 3
+      },
+      {
+        "code": 4,
+        "title": "真人剧",
+        "image": "/reference/fd0d94cf5e83-63edbeff.pt8dzy.png",
+        "description": "创作真人写实风格剧集",
+        "url": "",
+        "disabled": false,
+        "action": "modal",
+        "modalKey": "realLife",
+        "dramaType": 2
+      },
+      {
+        "code": 5,
+        "title": "转绘",
+        "image": "/reference/8570c1eb3916-741857b2.lbbuz1.png",
+        "description": "一键上传视频复刻爆款作品，支持选择风格、语种",
+        "url": "",
+        "disabled": false,
+        "action": "modal",
+        "modalKey": "redraw"
+      }
+    ],
+    "creationOptions": {
+      "comic": {
+        "title": "精品漫",
+        "options": [
+          {
+            "key": "novel",
+            "label": "从小说开始",
+            "description": "从书单选择或上传小说改编漫剧"
+          },
+          {
+            "key": "script",
+            "label": "从剧本开始",
+            "description": "上传已有剧本创作漫剧"
+          },
+          {
+            "key": "shot",
+            "label": "从分镜开始",
+            "description": "直接从分镜开始创作漫剧"
+          }
+        ]
+      },
+      "realLife": {
+        "title": "真人剧",
+        "options": [
+          {
+            "key": "novel",
+            "label": "从小说开始",
+            "description": "从书单选择或上传小说改编漫剧"
+          },
+          {
+            "key": "script",
+            "label": "从剧本开始",
+            "description": "上传已有剧本创作漫剧"
+          },
+          {
+            "key": "shot",
+            "label": "从分镜开始",
+            "description": "直接从分镜开始创作漫剧"
+          }
+        ]
+      }
+    }
+  },
+  "visualsByLabel": {
+    "DramaBuddy": [
+      "/reference/a8d5e10d6550-062401ad.nnfqb6.svg"
+    ],
+    "积分": [
+      "/reference/00fd175e604a-de924c71.ijec58.svg"
+    ],
+    "精品漫": [
+      "/reference/ebf96b63b41c-69dcaed2.sqrk9y.png"
+    ],
+    "动漫电影": [
+      "/reference/fb28c68481b8-9f3a03b3.eacofx.png"
+    ],
+    "民俗克系": [
+      "/reference/685ddadeedfa-a52ff478.3qy0ww.png"
+    ],
+    "诡秘克系": [
+      "/reference/025469a430f5-36668066.d9en3t.png"
+    ],
+    "蒸汽民国": [
+      "/reference/c956a39e39a2-3597a44f.bkgx4s.png"
+    ],
+    "赛博朋克": [
+      "/reference/45d4acca2a7d-9e0965a0.3m4ga6.png"
+    ],
+    "中式仙侠": [
+      "/reference/3bfeb6a32607-9abf6dbe.9yjdkb.png"
+    ],
+    "3D国漫": [
+      "/reference/4c215fc0708c-03fd7497.ouaj8h.png"
+    ],
+    "日式奇幻": [
+      "/reference/12ed72b1a119-56622ba5.knkox8.png"
+    ],
+    "古典历史": [
+      "/reference/b26c67253b68-14757a2a.6f0xxa.jpeg"
+    ],
+    "韩系漫画": [
+      "/reference/dbec67d376e7-7ee630d0.d118to.png"
+    ],
+    "吉卜力动画": [
+      "/reference/d0520243c03b-0c5f997f.2imipe.png"
+    ],
+    "赛璐璐手绘": [
+      "/reference/8c1888e1cb48-3290941d.xuosc5.png"
+    ],
+    "年代都市": [
+      "/reference/31adb8fed97f-71433948.zmo9kq.png"
+    ],
+    "3D卡通": [
+      "/reference/ad7c1ef68e88-c03e4a68.t9liqm.png"
+    ],
+    "黑白漫画": [
+      "/reference/a6d8d9392caa-b3b40a39.sib4pv.png"
+    ],
+    "美式漫画": [
+      "/reference/1d424d3045dd-bdd75a09.rmr5ot.png"
+    ],
+    "青春校园": [
+      "/reference/9039ce7ef077-e0c82953.qq1dfy.png"
+    ],
+    "昏暗色调": [
+      "/reference/ee601d116bb7-aed87df9.q6md96.png"
+    ],
+    "古风插画": [
+      "/reference/57bae34c6055-d985c130.rjqnqh.png"
+    ],
+    "都市异能": [
+      "/reference/e1c6e475b293-d2f65811.juda6p.png"
+    ],
+    "东方玄幻": [
+      "/reference/0a0694730ae2-8ccc0516.9d2w0r.png"
+    ],
+    "精致3D CG风格": [
+      "/reference/2c67a33eba50-92958aba.f74st5.png"
+    ],
+    "国漫3D新风格": [
+      "/reference/042757643a98-9d0e482c.oom42d.png"
+    ],
+    "赛博朋克游戏CG": [
+      "/reference/2508ab649a48-ce416dad.66ebgn.png"
+    ]
+  }
+}

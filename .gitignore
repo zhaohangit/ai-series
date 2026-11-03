@@ -1,0 +1,16 @@
+node_modules/
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+.env
+.env.local
+artifacts/reference/raw/
+artifacts/reference/captures/
+artifacts/reference/scripts/
+artifacts/verification/
+web/dist/
+data/
+.superpowers/
+.DS_Store
+*.tsbuildinfo
