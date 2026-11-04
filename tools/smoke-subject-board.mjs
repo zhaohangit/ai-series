@@ -24,11 +24,14 @@ try {
   const detail=page.getByRole('dialog',{name:'角色详情',exact:true});
   await detail.waitFor();
   await detail.getByLabel('角色定位',{exact:true}).fill('花园守护者');
+  await detail.getByLabel('出场信息',{exact:true}).fill('第二集以雨衣造型登场');
   await detail.getByRole('button',{name:'保存设定',exact:true}).click();
   await waitUntil(async()=>((await req('GET',`/projects/${project.id}/subjects`)).items[0]?.metadata.role==='花园守护者'));
   const subject=(await req('GET',`/projects/${project.id}/subjects`)).items[0];
   await page.reload();await detail.waitFor();
   assert.equal(await detail.getByLabel('角色定位',{exact:true}).inputValue(),'花园守护者');
+  assert.equal(await detail.getByLabel('出场信息',{exact:true}).inputValue(),'第二集以雨衣造型登场');
+  assert.equal((await req('GET','/assets/'+subject.id)).description,'');
   await page.screenshot({path:'artifacts/verification/subject-detail-live.png'});
   checks.push('subject-create-save-reload');
   const balance=await req('GET','/credits');
