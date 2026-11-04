@@ -1046,6 +1046,7 @@ function SubjectDetail({
                 <textarea
                   rows={3}
                   value={draft.metadata.performance_info}
+                  aria-label="出场信息"
                   placeholder="请输入出场信息"
                   maxLength={20000}
                   onChange={(e) =>
@@ -1058,6 +1059,7 @@ function SubjectDetail({
                 <textarea
                   rows={3}
                   value={draft.description}
+                  aria-label={`${label}描述`}
                   placeholder={`请输入${label}外观与特征`}
                   maxLength={10000}
                   onChange={(e) =>
@@ -1087,6 +1089,7 @@ function SubjectDetail({
                       maxLength={3000}
                       placeholder="请输入音色、语气与情绪描述"
                       value={draft.metadata.voice.description}
+                      aria-label="音色描述"
                       onChange={(e) => voice({ description: e.target.value })}
                     />
                     <small>
