@@ -62,7 +62,7 @@ import {
   Cable,
 } from "lucide-react";
 import { api, json, upload, freshSession } from "./api";
-import { materialPresetItems, referencePresetItems, validateName, filterTasks, uploadProblem } from "./domain";
+import { validateName, filterTasks, uploadProblem } from "./domain";
 import type {
   Session,
   Project,
@@ -72,6 +72,7 @@ import type {
   Catalog,
 } from "./types";
 import HomePage from "./HomePage";
+import PresetLibrary from "./PresetLibrary";
 import Marketplace from "./Marketplace";
 import TeamPage from "./TeamPage";
 import McpKeys from "./McpKeys";
@@ -262,14 +263,7 @@ function App() {
               id: String(s.id),
               url: s.imageUrl,
             })),
-        presets: local.presets.length
-          ? local.presets
-          : (reference.styles || []).map((s: any) => ({
-              ...s,
-              id: String(s.id),
-              url: s.imageUrl,
-              style: s.tags?.[0] || "通用",
-            })),
+        presets: local.presets,
         announcements: local.announcements.length
           ? local.announcements
           : (reference.releases || []).map((r: any) => ({
@@ -445,6 +439,10 @@ function App() {
             <Route path="/team-stats" element={<TeamPage stats />} />
             <Route path="/work" element={<WorkPage />} />
             <Route path="/material" element={<MaterialPage />} />
+            <Route
+              path="/material/roleDetail"
+              element={<PresetLibrary kind="character" />}
+            />
             <Route path="/task-center" element={<TaskPage />} />
             <Route path="/mcp-guide" element={<GuidePage />} />
             <Route path="/operation-manual" element={<GuidePage manual />} />
@@ -768,10 +766,15 @@ const materialKinds = [
   ["voice", "音色库"],
 ];
 function MaterialPage() {
-  const [source, setSource] = useState("preset"),
-    [kind, setKind] = useState("character"),
+  const location = useLocation(),
+    navigate = useNavigate();
+  const [source, setSource] = useState(
+      new URLSearchParams(location.search).get("active") === "1"
+        ? "own"
+        : "preset",
+    ),
+    [kind, setKindState] = useState("character"),
     [q, setQ] = useState(""),
-    [group, setGroup] = useState("全部"),
     [editing, setEditing] = useState<Asset | null>(null),
     [dialog, setDialog] = useState(false),
     [name, setName] = useState(""),
@@ -779,7 +782,36 @@ function MaterialPage() {
     [url, setUrl] = useState(""),
     [style, setStyle] = useState(""),
     [busy, setBusy] = useState(false);
-  const { catalog, notify } = useApp();
+  const { notify } = useApp();
+  const materialCodes: Record<string, string> = {
+    character: "1",
+    scene: "2",
+    prop: "3",
+    effect: "4",
+    voice: "6",
+  };
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    setSource(params.get("active") === "1" ? "own" : "preset");
+    setKindState(
+      (
+        {
+          "1": "character",
+          "2": "scene",
+          "3": "prop",
+          "4": "effect",
+          "6": "voice",
+        } as Record<string, string>
+      )[params.get("category") || "1"] || "character",
+    );
+  }, [location.search]);
+  function setKind(next: string) {
+    setKindState(next);
+    navigate(
+      `/material?category=${materialCodes[next] || "1"}&active=${source === "own" ? "1" : "2"}`,
+      { replace: true },
+    );
+  }
   const { data, loading, error, refresh } = useResource<{
     items: Asset[];
     total: number;
@@ -787,12 +819,6 @@ function MaterialPage() {
     items: [],
     total: 0,
   });
-  const presetCatalog = referencePresetItems(materialPresetItems(catalog));
-  const presets = presetCatalog.filter(
-    (p) =>
-      (!p.kind || p.kind === kind) &&
-      (!q || `${p.name} ${p.description}`.includes(q)),
-  );
   async function save() {
     const valid = validateName(name);
     if (valid.error) return notify(valid.error, "error");
@@ -806,7 +832,10 @@ function MaterialPage() {
           description,
           url,
           style,
-          metadata: {},
+          metadata: editing?.metadata || {},
+          ...(editing?.updated_at
+            ? { expected_updated_at: editing.updated_at }
+            : {}),
         }),
       });
       notify("素材已保存");
@@ -849,6 +878,14 @@ function MaterialPage() {
       notify((e as Error).message, "error");
     }
   }
+  if (source === "preset")
+    return (
+      <PresetLibrary
+        kind={kind}
+        onKind={setKind}
+        onOwn={() => navigate("/material?category=1&active=1")}
+      />
+    );
   return (
     <div className="page material-page">
       <div className="page-title">
@@ -873,8 +910,8 @@ function MaterialPage() {
         <button
           className={source === "preset" ? "active" : ""}
           onClick={() => {
-            setSource("preset");
             setKind("character");
+            navigate("/material?category=1&active=2");
           }}
         >
           预设
@@ -882,9 +919,7 @@ function MaterialPage() {
       </div>
       <div className="page-toolbar">
         <div className="tabs">
-          {materialKinds
-            .filter(([key]) => source === "own" || key !== "voice")
-            .map(([key, label]) => (
+          {materialKinds.map(([key, label]) => (
             <button
               key={key}
               className={kind === key ? "active" : ""}
@@ -894,7 +929,6 @@ function MaterialPage() {
             </button>
           ))}
         </div>
-        {source === "preset" && <span className="material-count">共 {presets.length} 项</span>}
         <label className="search-field">
           <Search size={16} />
           <input
@@ -904,112 +938,58 @@ function MaterialPage() {
           />
         </label>
       </div>
-      {source === "own" ? (
-        error ? (
-          <ErrorPanel error={error} onRetry={refresh} />
-        ) : loading ? (
-          <Loading />
-        ) : !data.items.length ? (
-          <Empty
-            title="暂无素材"
-            description="上传角色、场景或道具，让创作更高效"
-            action={
-              <button onClick={() => open()} className="primary">
-                <Upload size={15} />
-                上传素材
-              </button>
-            }
-          />
-        ) : (
-          <div className="asset-grid">
-            {data.items.map((a) => (
-              <article className="asset-card" key={a.id}>
-                <button className="asset-preview" onClick={() => open(a)}>
-                  {a.url ? (
-                    a.kind === "voice" ? (
-                      <audio
-                        controls
-                        src={a.url}
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                    ) : (
-                      <img src={a.url} alt={a.name} />
-                    )
-                  ) : (
-                    <Image size={40} />
-                  )}
-                </button>
-                <div>
-                  <button className="asset-name" onClick={() => open(a)}>
-                    {a.name}
-                  </button>
-                  <button
-                    className="icon-button"
-                    aria-label="删除素材"
-                    onClick={() => remove(a)}
-                  >
-                    <Trash2 size={15} />
-                  </button>
-                </div>
-                <small>
-                  {a.style || materialKinds.find((k) => k[0] === a.kind)?.[1]}
-                </small>
-              </article>
-            ))}
-          </div>
-        )
-      ) : presets.length ? (
-        <div className="asset-grid">
-          {presets
-            .filter(
-              (p) =>
-                group === "全部" ||
-                String(p.style || p.group || "").includes(group),
-            )
-            .map((a, i) => (
-              <article className="asset-card preset-card" key={String(a.id || i)}>
-                <div className="asset-preview">
-                  {a.url ? (
-                    <img src={a.url} alt={a.name} />
-                  ) : (
-                    <Palette size={40} />
-                  )}
-                </div>
-                <div>
-                  <strong>{a.name}</strong>
-                  <button
-                    className="small-button"
-                    onClick={async () => {
-                      try {
-                        await api("/assets", {
-                          method: "POST",
-                          body: json({
-                            name: a.name,
-                            kind,
-                            description: a.description || "",
-                            url: a.url || "",
-                            style: a.style || "",
-                            metadata: { preset_id: a.id },
-                          }),
-                        });
-                        notify("已添加到我的素材");
-                      } catch (e) {
-                        notify((e as Error).message, "error");
-                      }
-                    }}
-                  >
-                    使用
-                  </button>
-                </div>
-                <small>预设示例 · {a.style || "通用"}</small>
-              </article>
-            ))}
-        </div>
-      ) : (
+      {error ? (
+        <ErrorPanel error={error} onRetry={refresh} />
+      ) : loading ? (
+        <Loading />
+      ) : !data.items.length ? (
         <Empty
-          title="暂无可用预设"
-          description="预设目录由本地服务提供，可先上传自己的素材"
+          title="暂无素材"
+          description="上传角色、场景或道具，让创作更高效"
+          action={
+            <button onClick={() => open()} className="primary">
+              <Upload size={15} />
+              上传素材
+            </button>
+          }
         />
+      ) : (
+        <div className="asset-grid">
+          {data.items.map((a) => (
+            <article className="asset-card" key={a.id}>
+              <button className="asset-preview" onClick={() => open(a)}>
+                {a.url ? (
+                  a.kind === "voice" ? (
+                    <audio
+                      controls
+                      src={a.url}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  ) : (
+                    <img src={a.url} alt={a.name} />
+                  )
+                ) : (
+                  <Image size={40} />
+                )}
+              </button>
+              <div>
+                <button className="asset-name" onClick={() => open(a)}>
+                  {a.name}
+                </button>
+                <button
+                  className="icon-button"
+                  aria-label="删除素材"
+                  onClick={() => remove(a)}
+                >
+                  <Trash2 size={15} />
+                </button>
+              </div>
+              <small>
+                {a.style || materialKinds.find((k) => k[0] === a.kind)?.[1]}
+              </small>
+            </article>
+          ))}
+        </div>
       )}
       {dialog && (
         <Modal

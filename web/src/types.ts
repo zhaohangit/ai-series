@@ -21,6 +21,7 @@ export interface Asset {
   style: string;
   metadata: Record<string, unknown>;
   created_at: string;
+  updated_at?: string;
 }
 export interface Episode {
   id: string;

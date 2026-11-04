@@ -26,6 +26,8 @@ import {
   RefreshCw,
 } from "lucide-react";
 import StyleWorkspace from "./StyleWorkspace";
+import SubjectWorkspace from "./SubjectWorkspace";
+import StoryboardWorkspace from "./StoryboardWorkspace";
 import { api, json, upload } from "./api";
 import { useApp, useResource, Loading, ErrorPanel, Empty, Modal } from "./App";
 import type { Project, Episode, Shot, Asset, Task } from "./types";
@@ -133,7 +135,13 @@ export default function ProjectEditor() {
         aspect_ratio: current.aspect_ratio,
         settings: current.settings,
       };
-      await api(`/projects/${id}`, { method: "PATCH", body: json(snapshot) });
+      const stored = await api<Project>(`/projects/${id}`, {
+        method: "PATCH",
+        body: json({ ...snapshot, expected_updated_at: current.updated_at }),
+      });
+      setProject((latest) =>
+        latest ? { ...latest, updated_at: stored.updated_at } : latest,
+      );
       const latest = latestProject.current;
       setDirty(
         !latest ||
@@ -158,6 +166,22 @@ export default function ProjectEditor() {
   function update(patch: Partial<Project>) {
     if (project) setProject({ ...project, ...patch });
     setDirty(true);
+  }
+  async function goStep(step: string) {
+    if (saving) return;
+    try {
+      if (dirty) await save(false);
+      const routes: Record<string, string> = {
+        style: `/style/${id}`,
+        subject: `/roleAndScene/${id}`,
+        work: `/storyboard/${id}`,
+        video: `/video/preview/${id}`,
+        script: `/project/${id}`,
+      };
+      nav(routes[step] || `/project/${id}`);
+    } catch {
+      /* save keeps the error and user input visible */
+    }
   }
   useEffect(() => {
     const warn = (e: BeforeUnloadEvent) => {
@@ -381,11 +405,16 @@ export default function ProjectEditor() {
           {tab !== "script" && (
             <button
               className="workflow-next"
-              onClick={() => {
-                if (tab === "style") nav(`/roleAndScene/${id}`);
-                else if (tab === "subject") nav(`/storyboard/${id}`);
-                else if (tab === "work") nav(`/video/preview/${id}`);
-              }}
+              disabled={saving}
+              onClick={() =>
+                void goStep(
+                  tab === "style"
+                    ? "subject"
+                    : tab === "subject"
+                      ? "work"
+                      : "video",
+                )
+              }
             >
               {tab === "style"
                 ? "设置角色场景"
@@ -418,17 +447,8 @@ export default function ProjectEditor() {
           <button
             key={t.id}
             className={tab === t.id ? "active" : ""}
-            onClick={() => {
-              if (t.id === "video") {
-                nav(`/video/preview/${id}`);
-                return;
-              }
-              setTab(t.id);
-              if (t.id === "style") nav(`/style/${id}`);
-              else if (t.id === "subject") nav(`/roleAndScene/${id}`);
-              else if (t.id === "work") nav(`/storyboard/${id}`);
-              else if (project.kind === "series") nav(`/series/${t.id}/${id}`);
-            }}
+            disabled={saving}
+            onClick={() => void goStep(t.id)}
           >
             <span>{i + 1}</span>
             <t.icon size={16} />
@@ -593,186 +613,17 @@ export default function ProjectEditor() {
               save={() => {
                 save().catch(() => {});
               }}
-              next={() => setTab("subject")}
+              next={() => void goStep("subject")}
             />
           )}
           {tab === "subject" && (
-            <>
-              <div className="stage-toolbar">
-                <div>
-                  <h2>角色与场景</h2>
-                  <p>为你的故事建立一致的角色与视觉素材</p>
-                </div>
-                <button onClick={() => nav(`/storyboard/${id}`)}>
-                  <Plus size={15} />
-                  编辑分镜
-                </button>
-              </div>
-              <div className="tabs sub-tabs">
-                {[
-                  ["character", "角色"],
-                  ["scene", "场景"],
-                  ["prop", "道具"],
-                  ["voice", "音色"],
-                ].map(([key, name]) => (
-                  <button
-                    className={selectedAsset === key ? "active" : ""}
-                    onClick={() => setSelectedAsset(key)}
-                    key={key}
-                  >
-                    {name}
-                  </button>
-                ))}
-              </div>
-              {assets.items.filter((a) => a.kind === selectedAsset).length ? (
-                <div className="asset-grid editor-assets">
-                  {assets.items
-                    .filter((a) => a.kind === selectedAsset)
-                    .map((a) => (
-                      <article className="asset-card" key={a.id}>
-                        <div className="asset-preview">
-                          {a.url ? (
-                            a.kind === "voice" ? (
-                              <audio controls src={a.url} />
-                            ) : (
-                              <img src={a.url} alt={a.name} />
-                            )
-                          ) : (
-                            <Users size={40} />
-                          )}
-                        </div>
-                        <div>
-                          <strong>{a.name}</strong>
-                          <input
-                            type="checkbox"
-                            aria-label={`使用素材 ${a.name}`}
-                            checked={(
-                              (project.settings?.asset_ids || []) as string[]
-                            ).includes(a.id)}
-                            onChange={(e) => {
-                              const ids = (project.settings?.asset_ids ||
-                                []) as string[];
-                              update({
-                                settings: {
-                                  ...project.settings,
-                                  asset_ids: e.target.checked
-                                    ? [...ids, a.id]
-                                    : ids.filter((x) => x !== a.id),
-                                },
-                              });
-                            }}
-                          />
-                        </div>
-                        <p className="small muted">{a.description}</p>
-                      </article>
-                    ))}
-                </div>
-              ) : (
-                <Empty
-                  title="暂无可用素材"
-                  description="先在素材库上传，再为作品选用角色或场景"
-                  action={
-                    <button
-                      className="primary"
-                      onClick={() => nav("/material")}
-                    >
-                      <Plus size={15} />
-                      前往素材库
-                    </button>
-                  }
-                />
-              )}
-            </>
+            <SubjectWorkspace project={project} onProjectChange={setProject} />
           )}
           {tab === "work" && (
-            <>
-              <div className="stage-toolbar">
-                <div>
-                  <h2>
-                    分镜创作{" "}
-                    <small>
-                      {
-                        shots.items.filter(
-                          (s) =>
-                            !selectedEpisode ||
-                            s.episode_id === selectedEpisode,
-                        ).length
-                      }{" "}
-                      个分镜
-                    </small>
-                  </h2>
-                  <p>把你的故事，变成一个个精彩画面</p>
-                </div>
-                <div>
-                  <button
-                    onClick={() =>
-                      setShotView(shotView === "grid" ? "list" : "grid")
-                    }
-                  >
-                    <LayoutGrid size={15} />
-                    {shotView === "grid" ? "列表视图" : "网格视图"}
-                  </button>
-                  <button onClick={addShot}>
-                    <Plus size={15} />
-                    添加分镜
-                  </button>
-                  <button
-                    className="primary"
-                    onClick={() => generate("export")}
-                  >
-                    <Download size={15} />
-                    导出作品
-                  </button>
-                </div>
-              </div>
-              {shots.items.length ? (
-                <div
-                  className={`shot-grid ${shotView === "list" ? "shot-list" : ""}`}
-                >
-                  {shots.items
-                    .filter(
-                      (s) =>
-                        !selectedEpisode || s.episode_id === selectedEpisode,
-                    )
-                    .map((shot, i) => (
-                      <ShotCard
-                        key={shot.id}
-                        shot={shot}
-                        index={i}
-                        onSave={(patch) => editShot(shot, patch)}
-                        onDelete={() => removeShot(shot)}
-                        onGenerate={(kind) => generate(kind, shot)}
-                        onUpload={async (file) => {
-                          try {
-                            const result = await upload(file);
-                            await editShot(shot, {
-                              [result.content_type.startsWith("video")
-                                ? "video_url"
-                                : result.content_type.startsWith("audio")
-                                  ? "audio_url"
-                                  : "image_url"]: result.url,
-                            });
-                            notify("分镜媒体已上传");
-                          } catch (e) {
-                            notify((e as Error).message, "error");
-                          }
-                        }}
-                      />
-                    ))}
-                </div>
-              ) : (
-                <Empty
-                  title="还没有分镜"
-                  description="手动添加分镜，或在剧本页按段落解析"
-                  action={
-                    <button className="primary" onClick={addShot}>
-                      <Plus size={16} />
-                      添加第一个分镜
-                    </button>
-                  }
-                />
-              )}
-            </>
+            <StoryboardWorkspace
+              project={project}
+              onProjectChange={setProject}
+            />
           )}
         </section>
       </div>

@@ -56,15 +56,20 @@ import {
 } from "lucide-react";
 import { api, json, upload } from "./api";
 import { canvasSnapshot } from "./domain";
+import {
+  cloneSubgraph,
+  CanvasGraphHistory,
+  deleteSelection,
+  parseCanvasGraph,
+  selectedSubgraph,
+  serializeCanvasGraph,
+  type CanvasNodeData,
+  type CanvasGraph,
+} from "./canvas-commands";
+import "./canvas-detail.css";
 import { useApp, Modal, Loading, ErrorPanel, Empty } from "./App";
 import type { Project, Task } from "./types";
-type MediaData = {
-  label: string;
-  text: string;
-  url?: string;
-  kind: string;
-  [key: string]: unknown;
-};
+type MediaData = CanvasNodeData;
 type FlowNode = Node<MediaData>;
 const CanvasContext = createContext<{
   update: (id: string, patch: Partial<MediaData>) => void;
@@ -195,7 +200,13 @@ function CanvasInner() {
     [target, setTarget] = useState(""),
     [busy, setBusy] = useState(false),
     [history, setHistory] = useState<Task[]>([]),
-    [spaceHeld, setSpaceHeld] = useState(false);
+    [spaceHeld, setSpaceHeld] = useState(false),
+    [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(
+      null,
+    ),
+    [clipboardText, setClipboardText] = useState("");
+  const editorRef = useRef<HTMLDivElement>(null);
+  const pasteCount = useRef(0);
   const revisionRef = useRef(0),
     loaded = useRef(false),
     lastSaved = useRef(""),
@@ -204,13 +215,20 @@ function CanvasInner() {
     graphRef = useRef({ nodes, edges }),
     [viewVersion, setViewVersion] = useState(0),
     saveRef = useRef<() => Promise<void>>(async () => {}),
-    undoRef = useRef<Array<{ nodes: FlowNode[]; edges: Edge[] }>>([]),
-    redoRef = useRef<Array<{ nodes: FlowNode[]; edges: Edge[] }>>([]),
+    graphHistory = useRef(new CanvasGraphHistory()),
     [historyVersion, setHistoryVersion] = useState(0);
+  // Update the ref with the same graph as React state so consecutive commands,
+  // event callbacks and an in-flight save always observe the latest edit.
+  const replaceGraph = useCallback(
+    (graph: { nodes: FlowNode[]; edges: Edge[] }) => {
+      graphRef.current = graph;
+      setNodes(graph.nodes);
+      setEdges(graph.edges);
+    },
+    [],
+  );
   const remember = useCallback(() => {
-    undoRef.current.push(structuredClone(graphRef.current));
-    if (undoRef.current.length > 50) undoRef.current.shift();
-    redoRef.current = [];
+    graphHistory.current.record(graphRef.current);
     setHistoryVersion((v) => v + 1);
   }, []);
   const load = useCallback(async () => {
@@ -222,10 +240,8 @@ function CanvasInner() {
         api<any>(`/projects/${id}/canvas`),
       ]);
       setProject(p);
-      setNodes(graph.nodes || []);
-      setEdges(graph.edges || []);
-      undoRef.current = [];
-      redoRef.current = [];
+      replaceGraph({ nodes: graph.nodes || [], edges: graph.edges || [] });
+      graphHistory.current.clear();
       setHistoryVersion((v) => v + 1);
       revisionRef.current = graph.revision || 0;
       setRevision(revisionRef.current);
@@ -248,7 +264,6 @@ function CanvasInner() {
   useEffect(() => {
     load();
   }, [load]);
-  graphRef.current = { nodes, edges };
   async function save() {
     if (!loaded.current) return;
     if (flushPromise.current) return flushPromise.current;
@@ -308,103 +323,261 @@ function CanvasInner() {
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, []);
+  function commandBlocked(target: EventTarget | null) {
+    const element = target instanceof Element ? target : null;
+    return (
+      !!modal ||
+      !!element?.closest(
+        "input, textarea, select, [contenteditable]:not([contenteditable='false']), [role='dialog']",
+      )
+    );
+  }
   useEffect(() => {
-    const handler = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      const editing =
-        target?.tagName === "INPUT" ||
-        target?.tagName === "TEXTAREA" ||
-        target?.isContentEditable;
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
-        if (editing) return;
-        event.preventDefault();
-        if (event.shiftKey) redo();
-        else undo();
-        return;
-      }
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "y") {
-        if (editing) return;
-        event.preventDefault();
-        redo();
-        return;
-      }
-      if (event.key === "Escape" && menu) {
+    const outside = (event: PointerEvent) => {
+      if (
+        !(event.target instanceof Element) ||
+        !event.target.closest(
+          ".canvas-context-menu, .canvas-add-menu, [data-canvas-menu-trigger]",
+        )
+      ) {
         setMenu(false);
+        setContextMenu(null);
+      }
+    };
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setMenu(false);
+        setContextMenu(null);
+        setSpaceHeld(false);
         return;
       }
-      if (event.key === " " && !editing) {
+      if (
+        event.defaultPrevented ||
+        event.isComposing ||
+        event.altKey ||
+        commandBlocked(event.target)
+      )
+        return;
+      const element = event.target instanceof Element ? event.target : null;
+      if (
+        element &&
+        element !== document.body &&
+        !editorRef.current?.contains(element)
+      )
+        return;
+      if (event.metaKey || event.ctrlKey) {
+        const key = event.key.toLowerCase();
+        if (key === "v") return; // The paste event supplies plain text without clipboard-read permission.
+        if (["a", "c", "d", "z", "y"].includes(key)) {
+          event.preventDefault();
+          if (event.repeat) return;
+          if (key === "a") selectAll();
+          if (key === "c") void copySelected();
+          if (key === "d") duplicateSelected();
+          if (key === "z") event.shiftKey ? redo() : undo();
+          if (key === "y") redo();
+        }
+        return;
+      }
+      if (["Backspace", "Delete"].includes(event.key)) {
+        event.preventDefault();
+        if (!event.repeat) removeSelected();
+      }
+      if (event.key === " ") {
         event.preventDefault();
         setSpaceHeld(true);
       }
+    };
+    const paste = (event: ClipboardEvent) => {
+      if (event.defaultPrevented || commandBlocked(event.target)) return;
+      const element = event.target instanceof Element ? event.target : null;
+      if (
+        element &&
+        element !== document.body &&
+        !editorRef.current?.contains(element)
+      )
+        return;
+      event.preventDefault();
+      pasteGraph(event.clipboardData?.getData("text/plain") || "");
     };
     const release = (event: KeyboardEvent) => {
       if (event.key === " ") setSpaceHeld(false);
     };
     const blur = () => setSpaceHeld(false);
+    document.addEventListener("pointerdown", outside);
     window.addEventListener("keydown", handler);
+    window.addEventListener("paste", paste);
     window.addEventListener("keyup", release);
     window.addEventListener("blur", blur);
     return () => {
+      document.removeEventListener("pointerdown", outside);
       window.removeEventListener("keydown", handler);
+      window.removeEventListener("paste", paste);
       window.removeEventListener("keyup", release);
       window.removeEventListener("blur", blur);
     };
   });
-  function update(nodeId: string, patch: Partial<MediaData>) {
+  function applyCommand(graph: { nodes: FlowNode[]; edges: Edge[] }) {
     remember();
-    setNodes((n) =>
-      n.map((node) =>
+    replaceGraph(graph);
+    setContextMenu(null);
+  }
+  function selectAll() {
+    const graph = graphRef.current;
+    replaceGraph({
+      nodes: graph.nodes.map((node) => ({ ...node, selected: true })),
+      edges: graph.edges.map((edge) => ({ ...edge, selected: true })),
+    });
+    setContextMenu(null);
+  }
+  function appendGraph(graph: CanvasGraph, offset = { x: 48, y: 48 }) {
+    const current = graphRef.current;
+    if (
+      current.nodes.length + graph.nodes.length > 2000 ||
+      current.edges.length + graph.edges.length > 6000
+    )
+      throw new Error("画布最多支持 2000 个节点和 6000 条连线");
+    const existing = new Set([
+      ...current.nodes.map((node) => node.id),
+      ...current.edges.map((edge) => edge.id),
+    ]);
+    const cloned = cloneSubgraph(
+      graph,
+      () => {
+        let newId = crypto.randomUUID();
+        while (existing.has(newId)) newId = crypto.randomUUID();
+        existing.add(newId);
+        return newId;
+      },
+      offset,
+    );
+    applyCommand({
+      nodes: [
+        ...current.nodes.map((node) => ({ ...node, selected: false })),
+        ...cloned.nodes,
+      ],
+      edges: [
+        ...current.edges.map((edge) => ({ ...edge, selected: false })),
+        ...cloned.edges,
+      ],
+    });
+  }
+  function duplicateSelected() {
+    const selected = selectedSubgraph(graphRef.current);
+    if (!selected.nodes.length) return;
+    try {
+      appendGraph(selected);
+    } catch (e) {
+      notify((e as Error).message, "error");
+    }
+  }
+  async function copySelected() {
+    const selected = selectedSubgraph(graphRef.current);
+    if (!selected.nodes.length) return;
+    const text = serializeCanvasGraph(selected);
+    setContextMenu(null);
+    pasteCount.current = 0;
+    try {
+      if (!navigator.clipboard?.writeText)
+        throw new Error("Clipboard unavailable");
+      await navigator.clipboard.writeText(text);
+      notify(`已复制 ${selected.nodes.length} 个节点及内部连线`);
+    } catch {
+      setClipboardText(text);
+      setModal("copy");
+    }
+  }
+  function pasteGraph(text: string) {
+    try {
+      const graph = parseCanvasGraph(text);
+      if (!graph.nodes.length) throw new Error("粘贴数据中没有节点");
+      const offset = 48 * (pasteCount.current + 1);
+      appendGraph(graph, { x: offset, y: offset });
+      pasteCount.current += 1;
+      setModal("");
+      notify(`已粘贴 ${graph.nodes.length} 个节点及内部连线`);
+    } catch (e) {
+      notify((e as Error).message, "error");
+    }
+  }
+  async function pasteFromClipboard() {
+    setContextMenu(null);
+    try {
+      if (!navigator.clipboard?.readText)
+        throw new Error("Clipboard unavailable");
+      pasteGraph(await navigator.clipboard.readText());
+    } catch {
+      setClipboardText("");
+      setModal("paste");
+    }
+  }
+  function removeSelected() {
+    const graph = graphRef.current;
+    if (
+      !graph.nodes.some((node) => node.selected) &&
+      !graph.edges.some((edge) => edge.selected)
+    )
+      return;
+    applyCommand(deleteSelection(graph));
+  }
+  function update(nodeId: string, patch: Partial<MediaData>) {
+    const graph = graphRef.current;
+    if (!graph.nodes.some((node) => node.id === nodeId)) return;
+    applyCommand({
+      ...graph,
+      nodes: graph.nodes.map((node) =>
         node.id === nodeId
           ? { ...node, data: { ...node.data, ...patch } }
           : node,
       ),
-    );
+    });
   }
   function remove(nodeId: string) {
-    remember();
-    setNodes((n) => n.filter((node) => node.id !== nodeId));
-    setEdges((e) =>
-      e.filter((edge) => edge.source !== nodeId && edge.target !== nodeId),
-    );
+    const graph = graphRef.current;
+    if (!graph.nodes.some((node) => node.id === nodeId)) return;
+    applyCommand(deleteSelection(graph, [nodeId]));
   }
   function add(kind: string, url?: string, text = "") {
-    remember();
     const position = flow.screenToFlowPosition({
       x: window.innerWidth / 2 - 100 + Math.random() * 80,
       y: window.innerHeight / 2 - 80 + Math.random() * 80,
     });
-    setNodes((n) => [
-      ...n,
-      {
-        id: crypto.randomUUID(),
-        type: "media",
-        position,
-        data: {
-          kind,
-          label:
-            { text: "文本", image: "图片", video: "视频", audio: "音频" }[
-              kind
-            ] || "素材",
-          text,
-          url,
+    const graph = graphRef.current;
+    applyCommand({
+      ...graph,
+      nodes: [
+        ...graph.nodes.map((node) => ({ ...node, selected: false })),
+        {
+          id: crypto.randomUUID(),
+          type: "media",
+          position,
+          data: {
+            kind,
+            label:
+              { text: "文本", image: "图片", video: "视频", audio: "音频" }[
+                kind
+              ] || "素材",
+            text,
+            ...(url ? { url } : {}),
+          },
+          selected: true,
         },
-        selected: true,
-      },
-    ]);
+      ],
+    });
     setMenu(false);
   }
   async function importFile(file: File, nodeId?: string) {
     setBusy(true);
     try {
-      if (file.name.endsWith(".json") && !nodeId) {
-        const graph = JSON.parse(await file.text());
-        if (!Array.isArray(graph.nodes) || !Array.isArray(graph.edges))
-          throw new Error("画布文件缺少 nodes 或 edges");
-        remember();
-        setNodes(graph.nodes);
-        setEdges(graph.edges);
-        if (graph.viewport) flow.setViewport(graph.viewport);
-        notify("画布已导入");
+      if (/\.json$/i.test(file.name) && !nodeId) {
+        const graph = parseCanvasGraph(await file.text());
+        applyCommand(graph);
+        if (graph.viewport) {
+          await flow.setViewport(graph.viewport);
+          setViewVersion((version) => version + 1);
+        }
+        await saveRef.current();
+        notify("画布已导入并保存");
       } else if (file.type.startsWith("text/") || file.name.endsWith(".txt")) {
         const text = await file.text();
         if (nodeId) update(nodeId, { text });
@@ -477,19 +650,17 @@ function CanvasInner() {
     }
   }
   function undo() {
-    const previous = undoRef.current.pop();
+    const previous = graphHistory.current.undo(graphRef.current);
     if (!previous) return;
-    redoRef.current.push(structuredClone(graphRef.current));
-    setNodes(previous.nodes);
-    setEdges(previous.edges);
+    replaceGraph(previous);
+    setContextMenu(null);
     setHistoryVersion((v) => v + 1);
   }
   function redo() {
-    const next = redoRef.current.pop();
+    const next = graphHistory.current.redo(graphRef.current);
     if (!next) return;
-    undoRef.current.push(structuredClone(graphRef.current));
-    setNodes(next.nodes);
-    setEdges(next.edges);
+    replaceGraph(next);
+    setContextMenu(null);
     setHistoryVersion((v) => v + 1);
   }
   async function openHistory() {
@@ -504,11 +675,10 @@ function CanvasInner() {
   function exportGraph() {
     const blob = new Blob(
       [
-        JSON.stringify(
-          canvasSnapshot(nodes, edges, flow.getViewport(), revisionRef.current),
-          null,
-          2,
-        ),
+        serializeCanvasGraph({
+          ...graphRef.current,
+          viewport: flow.getViewport(),
+        }),
       ],
       { type: "application/json" },
     );
@@ -536,6 +706,8 @@ function CanvasInner() {
     >
       <div
         className="canvas-editor"
+        ref={editorRef}
+        tabIndex={-1}
         onDragOver={(e) => e.preventDefault()}
         onDrop={(e) => {
           e.preventDefault();
@@ -600,7 +772,7 @@ function CanvasInner() {
           <div className="canvas-floating">
             <button
               onClick={undo}
-              disabled={!undoRef.current.length}
+              disabled={!graphHistory.current.canUndo}
               className="icon-button"
               title="撤销"
             >
@@ -608,7 +780,7 @@ function CanvasInner() {
             </button>
             <button
               onClick={redo}
-              disabled={!redoRef.current.length}
+              disabled={!graphHistory.current.canRedo}
               className="icon-button"
               title="重做"
             >
@@ -636,8 +808,9 @@ function CanvasInner() {
             className="primary icon-button"
             onClick={() => setMenu(!menu)}
             title="添加节点"
-              aria-label="添加节点"
-              aria-expanded={menu}
+            aria-label="添加节点"
+            aria-expanded={menu}
+            data-canvas-menu-trigger
           >
             <Plus size={23} />
           </button>
@@ -690,38 +863,158 @@ function CanvasInner() {
             ))}
           </div>
         )}
+        <div
+          className="canvas-command-toolbar canvas-floating"
+          aria-label="画布编辑命令"
+        >
+          <span>{nodes.filter((node) => node.selected).length} 个选中</span>
+          <button onClick={selectAll} title="全选节点 (⌘/Ctrl+A)">
+            全选
+          </button>
+          <button
+            onClick={duplicateSelected}
+            disabled={!nodes.some((node) => node.selected)}
+            title="创建副本 (⌘/Ctrl+D)"
+            aria-label="创建节点副本"
+          >
+            <Copy size={15} />
+            副本
+          </button>
+          <button
+            onClick={() => void copySelected()}
+            disabled={!nodes.some((node) => node.selected)}
+            title="复制到剪贴板 (⌘/Ctrl+C)"
+          >
+            复制
+          </button>
+          <button
+            onClick={() => void pasteFromClipboard()}
+            title="粘贴节点 (⌘/Ctrl+V)"
+          >
+            粘贴
+          </button>
+          <button
+            onClick={removeSelected}
+            disabled={
+              !nodes.some((node) => node.selected) &&
+              !edges.some((edge) => edge.selected)
+            }
+            aria-label="删除选中节点或连线"
+          >
+            <Trash2 size={15} />
+          </button>
+        </div>
+        {contextMenu && (
+          <div
+            className="canvas-context-menu"
+            role="menu"
+            aria-label="画布菜单"
+            style={{
+              left: Math.max(8, contextMenu.x),
+              top: Math.max(72, contextMenu.y),
+            }}
+          >
+            <button role="menuitem" onClick={selectAll}>
+              全选节点<kbd>⌘/Ctrl A</kbd>
+            </button>
+            <button
+              role="menuitem"
+              onClick={duplicateSelected}
+              disabled={!nodes.some((node) => node.selected)}
+            >
+              创建副本<kbd>⌘/Ctrl D</kbd>
+            </button>
+            <button
+              role="menuitem"
+              onClick={() => void copySelected()}
+              disabled={!nodes.some((node) => node.selected)}
+            >
+              复制节点<kbd>⌘/Ctrl C</kbd>
+            </button>
+            <button role="menuitem" onClick={() => void pasteFromClipboard()}>
+              粘贴节点<kbd>⌘/Ctrl V</kbd>
+            </button>
+            <button
+              role="menuitem"
+              onClick={removeSelected}
+              disabled={
+                !nodes.some((node) => node.selected) &&
+                !edges.some((edge) => edge.selected)
+              }
+            >
+              删除选中项<kbd>Delete</kbd>
+            </button>
+          </div>
+        )}
         <ReactFlow
           nodes={nodes}
           edges={edges}
           nodeTypes={nodeTypes}
-          onNodesChange={(changes: NodeChange<FlowNode>[]) =>
-            setNodes((n) => applyNodeChanges(changes, n))
-          }
-          onEdgesChange={(changes: EdgeChange[]) =>
-            setEdges((e) => applyEdgeChanges(changes, e))
-          }
+          onNodesChange={(changes: NodeChange<FlowNode>[]) => {
+            const graph = graphRef.current;
+            replaceGraph({
+              ...graph,
+              nodes: applyNodeChanges(changes, graph.nodes),
+            });
+          }}
+          onEdgesChange={(changes: EdgeChange[]) => {
+            const graph = graphRef.current;
+            replaceGraph({
+              ...graph,
+              edges: applyEdgeChanges(changes, graph.edges),
+            });
+          }}
           onConnect={(connection: Connection) => {
-            remember();
-            setEdges((e) =>
-              addEdge(
+            const graph = graphRef.current;
+            applyCommand({
+              ...graph,
+              edges: addEdge(
                 { ...connection, animated: true, style: { stroke: "#6a7ef4" } },
-                e,
+                graph.edges,
               ),
-            );
+            });
           }}
           onNodeDragStart={() => remember()}
-          onBeforeDelete={() => {
-            remember();
-            return Promise.resolve(true);
+          onNodeContextMenu={(event, node) => {
+            event.preventDefault();
+            const graph = graphRef.current;
+            if (!node.selected)
+              replaceGraph({
+                nodes: graph.nodes.map((item) => ({
+                  ...item,
+                  selected: item.id === node.id,
+                })),
+                edges: graph.edges.map((edge) => ({
+                  ...edge,
+                  selected: false,
+                })),
+              });
+            setMenu(false);
+            setContextMenu({
+              x: Math.min(event.clientX, window.innerWidth - 222),
+              y: Math.min(event.clientY, window.innerHeight - 260),
+            });
           }}
-          onPaneClick={() => setMenu(false)}
+          onPaneContextMenu={(event) => {
+            event.preventDefault();
+            setMenu(false);
+            setContextMenu({
+              x: Math.min(event.clientX, window.innerWidth - 222),
+              y: Math.min(event.clientY, window.innerHeight - 260),
+            });
+          }}
+          onPaneClick={() => {
+            setMenu(false);
+            setContextMenu(null);
+            editorRef.current?.focus();
+          }}
           onMoveEnd={() => setViewVersion((v) => v + 1)}
           panOnDrag={pan || spaceHeld ? [0, 1, 2] : [1, 2]}
           selectionOnDrag={!pan && !spaceHeld}
           minZoom={0.15}
           maxZoom={2}
           colorMode="dark"
-          deleteKeyCode={["Backspace", "Delete"]}
+          deleteKeyCode={null}
           fitView={false}
         >
           <Background gap={24} size={1} color="#34343a" />
@@ -746,7 +1039,8 @@ function CanvasInner() {
           </div>
         )}
         <div className="canvas-bottom-hint">
-          滚轮缩放 · 空格 + 拖动平移 · 拖拽节点接口连接 · Delete 删除选中节点
+          滚轮缩放 · 空格平移 · 拖拽接口连接 · ⌘/Ctrl+A 全选 · C 复制 · V 粘贴 ·
+          D 副本 · Delete 删除
         </div>
         <button
           className="canvas-agent"
@@ -762,6 +1056,43 @@ function CanvasInner() {
             <LoaderCircle className="spin" size={16} />
             正在处理
           </div>
+        )}
+        {(modal === "copy" || modal === "paste") && (
+          <Modal
+            title={modal === "copy" ? "复制画布节点" : "粘贴画布节点"}
+            onClose={() => setModal("")}
+          >
+            <div className="form-body">
+              <p className="muted">
+                {modal === "copy"
+                  ? "浏览器未允许直接写入剪贴板。请选择下方 JSON 并按 ⌘/Ctrl+C 复制。"
+                  : "浏览器未允许读取剪贴板。请在下方粘贴已复制的画布 JSON；节点和内部连线会作为副本添加。"}
+              </p>
+              <textarea
+                aria-label="画布剪贴板 JSON"
+                className="canvas-clipboard-text"
+                value={clipboardText}
+                readOnly={modal === "copy"}
+                onChange={(event) => setClipboardText(event.target.value)}
+                rows={9}
+                onFocus={(event) => {
+                  if (modal === "copy") event.currentTarget.select();
+                }}
+              />
+            </div>
+            <footer>
+              <button onClick={() => setModal("")}>关闭</button>
+              {modal === "paste" && (
+                <button
+                  className="primary"
+                  onClick={() => pasteGraph(clipboardText)}
+                  disabled={!clipboardText.trim()}
+                >
+                  粘贴节点
+                </button>
+              )}
+            </footer>
+          </Modal>
         )}
         {modal === "generate" && (
           <Modal title="生成媒体" onClose={() => setModal("")}>

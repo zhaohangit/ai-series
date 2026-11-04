@@ -1,0 +1,69 @@
+.canvas-command-toolbar {
+  position: absolute;
+  z-index: 10;
+  top: 83px;
+  right: 22px;
+  gap: 2px;
+  padding: 6px;
+  display: flex;
+  align-items: center;
+}
+.canvas-command-toolbar > span {
+  padding: 0 9px;
+  color: #a5a5b3;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.canvas-command-toolbar button {
+  gap: 5px;
+  padding: 7px 9px;
+  font-size: 12px;
+}
+.canvas-context-menu {
+  position: fixed;
+  z-index: 100;
+  width: 210px;
+  padding: 6px;
+  border: 1px solid #41414d;
+  border-radius: 12px;
+  background: #24242d;
+  box-shadow: 0 12px 40px #0008;
+}
+.canvas-context-menu button {
+  display: flex;
+  width: 100%;
+  justify-content: space-between;
+  align-items: center;
+  border: 0;
+  background: transparent;
+  border-radius: 7px;
+  padding: 10px 9px;
+  text-align: left;
+  font-size: 13px;
+}
+.canvas-context-menu button:hover:not(:disabled) {
+  background: #383845;
+}
+.canvas-context-menu kbd {
+  color: #9c9cae;
+  font-size: 10px;
+  font-family: inherit;
+}
+.canvas-editor:focus {
+  outline: none;
+}
+.canvas-clipboard-text {
+  font:
+    12px/1.5 ui-monospace,
+    monospace;
+  resize: vertical;
+}
+@media (max-width: 900px) {
+  .canvas-command-toolbar {
+    top: 139px;
+    right: 14px;
+  }
+  .canvas-command-toolbar > span {
+    display: none;
+  }
+}

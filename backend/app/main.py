@@ -22,6 +22,7 @@ from .schemas import AssetInput, CanvasInput, EpisodeInput, ParseInput, ProfileI
 from .storage import MediaStorage
 from .exports import export_mp4, export_zip, validate_export
 from .targets import apply_target, capture_target
+from .workflows import register_workflows
 
 
 def serialize(row):
@@ -157,6 +158,10 @@ def create_app(database_url=None, media_root=None, session_secret=None):
         configured = [{"id": "configured-" + kind, "name": "自定义" + label + "模型", "kind": kind, "available": app.state.provider.available(kind)} for kind, label in (("text", "文本"), ("image", "图像"), ("audio", "音频"), ("video", "视频"))]
         return {"styles": reference["styles"], "models": configured + reference["reference_models"], "presets": [], "announcements": reference["announcements"], "examples": [], "main_image_templates": reference["main_image_templates"], "mode": "local", "fixture_notice": "参考站风格、模型与更新公告为只读目录，不代表本地模型已接入。", "source": reference["source"]}
 
+    @app.get("/api/material-presets")
+    def material_presets():
+        return json.loads(Path(__file__).with_name("material_presets.json").read_text())
+
     @app.get("/api/projects")
     def list_projects(kind: str | None = None, q: str = "", oid=Depends(owner), session=Depends(database)):
         rows = session.scalars(select(Project).where(Project.owner_id == oid).order_by(Project.updated_at.desc())).all()
@@ -177,6 +182,10 @@ def create_app(database_url=None, media_root=None, session_secret=None):
 
     def patch_content(model, schema, row_id, body, oid, session):
         row = owned(session, model, row_id, oid, lock=True)
+        body = dict(body)
+        expected = body.pop("expected_updated_at", None)
+        if expected is not None and expected != row.updated_at:
+            raise HTTPException(409, "Content changed; reload before saving")
         unknown = set(body) - set(schema.model_fields)
         if unknown:
             raise HTTPException(422, "Unknown fields: " + ", ".join(sorted(unknown)))
@@ -238,7 +247,7 @@ def create_app(database_url=None, media_root=None, session_secret=None):
 
     @app.post("/api/projects/{pid}/shots", status_code=201)
     def create_shot(pid: str, body: ShotInput, oid=Depends(owner), session=Depends(database)):
-        owned(session, Project, pid, oid)
+        owned(session, Project, pid, oid, lock=True)
         check_episode(session, body.episode_id, pid, oid)
         data = body.model_dump()
         episode_id = data.pop("episode_id")
@@ -253,7 +262,9 @@ def create_app(database_url=None, media_root=None, session_secret=None):
 
     @app.delete("/api/shots/{sid}", status_code=204)
     def delete_shot(sid: str, oid=Depends(owner), session=Depends(database)):
-        session.delete(owned(session, Shot, sid, oid))
+        row = owned(session, Shot, sid, oid)
+        owned(session, Project, row.project_id, oid, lock=True)
+        session.delete(row)
         session.commit()
         return Response(status_code=204)
 
@@ -399,7 +410,7 @@ def create_app(database_url=None, media_root=None, session_secret=None):
             session.rollback()
             raise HTTPException(402, "Insufficient local credits")
         # This write serializes owner submissions on PostgreSQL before checking active targets.
-        target = capture_target(session, oid, body.project_id, body.parameters) if body.kind != "export" else None
+        target = capture_target(session, oid, body.project_id, body.parameters, body.kind) if body.kind != "export" else None
         task = Task(owner_id=oid, kind=body.kind, project_id=body.project_id, idempotency_key=body.idempotency_key, request_hash=fingerprint, data={"prompt": body.prompt, "parameters": body.parameters, "cost": cost, "target": target, "executor": os.getenv("TASK_EXECUTOR", "background")})
         session.add(task)
         try:
@@ -468,6 +479,7 @@ def create_app(database_url=None, media_root=None, session_secret=None):
             return handler(arguments, oid, session)
         return {"description": description, "inputSchema": {"type": "object", "properties": {name: {"type": "string"} for name in fields}, "required": list(required), "additionalProperties": False}, "fn": invoke}
 
+    register_workflows(app, owner, database, owned, serialize)
     register_mcp(app, owner, database, {
         "list_projects": string_tool("List the local key owner's projects", ("kind", "q"), (), lambda a, o, s: list_projects(kind=a.get("kind"), q=a.get("q", ""), oid=o, session=s)),
         "get_project": string_tool("Read an owned project", ("project_id",), ("project_id",), lambda a, o, s: get_project(a["project_id"], oid=o, session=s)),

@@ -29,17 +29,25 @@ const [action='state',value='',label='latest'] = process.argv.slice(2);
 await page.setViewportSize({width:1440,height:1000});
 const network=[];
 const pending=[];
+page.on('response', res => {
+  const u = new URL(res.url());
+  if (u.hostname === 'aicomic.yuewen.com' && (u.pathname.startsWith('/api/commonLibrary/') || u.pathname === '/api/roleLibrary/system/list')) {
+    const file = u.pathname === '/api/commonLibrary/getLibraryList' ? 'material-library-response.json' : 'material-' + u.pathname.split('/').at(-1) + '.json';
+    pending.push(res.json().then(body => fs.writeFile(path.join(dir, file), JSON.stringify({path: u.pathname, request: res.request().postData() ? res.request().postDataJSON() : Object.fromEntries(u.searchParams), body}, null, 2))).catch(() => {}));
+  }
+});
 const catalogPaths = ['/api/style/getDefaultStyleList','/api/style/mainImagePromptTemplate/list','/api/model_config/models','/api/aidrama/homeBanner/getBannerList','/api/versionList','/api/shotProject/projectTypeCategories'];
 page.on('response',res=>{const u=new URL(res.url());if(u.hostname.endsWith('yuewen.com')&&/api|common/.test(u.pathname)) network.push({method:res.request().method(),path:u.pathname,status:res.status(),type:res.headers()['content-type']});if(catalogPaths.includes(u.pathname)) pending.push(res.json().then(body=>fs.writeFile(path.join(dir,'catalog-'+u.pathname.replaceAll('/','_')+'-'+Buffer.from(u.search).toString('hex').slice(0,64)+'.json'),JSON.stringify({path:u.pathname,query:u.search,body},null,2))).catch(()=>{}));});
 if(action==='goto') {
   const url=new URL(value,'https://aicomic.yuewen.com');
   if(url.origin!=='https://aicomic.yuewen.com') throw new Error('Scope violation');
   await page.goto(url.href,{waitUntil:'domcontentloaded'});
-} else if(action==='reload') await page.reload({waitUntil:'domcontentloaded'});
+} else if(action==='reload') {await page.reload({waitUntil:'domcontentloaded'});if(value)await page.getByText(value,{exact:true}).first().waitFor({timeout:20000});}
 else if(action==='button') await page.getByRole('button',{name:value,exact:true}).click({timeout:6000});
 else if(action==='text') await page.getByText(value,{exact:true}).click({timeout:6000});
 else if(action==='role') {const [role,name]=value.split('|');await page.getByRole(role,{name,exact:true}).click({timeout:6000});}
 else if(action==='css') await page.locator(value).click({timeout:6000});
+else if(action==='wait_text') await page.getByText(value,{exact:true}).first().waitFor({timeout:20000});
 else if(action==='fill') {const [placeholder,...rest]=value.split('|');await page.getByPlaceholder(placeholder,{exact:true}).fill(rest.join('|'));}
 else if(action==='prompt') await page.locator('div[contenteditable="true"]:visible').fill(value,{timeout:6000});
 else if(action==='escape') await page.keyboard.press('Escape');

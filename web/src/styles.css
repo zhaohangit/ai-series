@@ -1193,6 +1193,8 @@ small,
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 20px;
 }
+.tab-subject .episode-panel,.tab-work .episode-panel{display:none}
+.tab-subject .editor-stage,.tab-work .editor-stage{padding:0}
 .asset-card {
   border: 1px solid #292930;
   border-radius: 8px;

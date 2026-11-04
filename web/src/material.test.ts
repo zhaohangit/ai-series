@@ -1,30 +1,28 @@
-import { describe, expect, it } from "vitest";
-import { materialPresetItems, referencePresetItems } from "./domain";
+import { describe, it, expect } from "vitest";
+import catalogue from "../public/reference/material-presets.json";
 
-describe("material preset catalogue", () => {
-  it("falls back to the captured style catalogue when the API has no presets", () => {
-    const styles = [{ id: "13", name: "动漫电影" }, { id: "4", name: "民俗克系" }];
-    expect(materialPresetItems({ presets: [], styles })).toEqual(styles);
+describe("captured material collections", () => {
+  it("keeps actual role-library identities and counts separate from drawing styles", () => {
+    expect(catalogue.collections).toHaveLength(14);
+    expect(
+      catalogue.collections.reduce((total, c) => total + c.items.length, 0),
+    ).toBe(146);
+    const first = catalogue.collections.find((c) => c.id === "101")!;
+    expect(first.name).toBe("民俗克系");
+    expect(first.material_count).toBe(8);
+    expect(first.items[0].name).toBe("小邪童");
+    expect(first.items[0].url).toMatch(/^\/reference\/preset-/);
+    expect(catalogue.collections.find((c) => c.id === "108")?.name).toBe(
+      "年代海报",
+    );
   });
-
-  it("prefers an API preset catalogue when one is available", () => {
-    const presets = [{ id: "preset-1", name: "我的预设" }];
-    expect(materialPresetItems({ presets, styles: [{ id: "style-1" }] })).toEqual(presets);
-  });
-
-  it("matches the fourteen character presets captured from the reference", () => {
-    const items = [
-      { name: "民俗克系" },
-      { name: "诡秘克系" },
-      { name: "科幻奇幻" },
-    ];
-    expect(referencePresetItems(items).map((item) => item.name)).toEqual([
-      "民俗克系",
-      "诡秘克系",
-    ]);
-  });
-
-  it("uses the reference display name for the renamed period style", () => {
-    expect(referencePresetItems([{ name: "年代都市" }])[0].name).toBe("年代海报");
+  it("never publishes signed access queries or credentials in cached metadata", () => {
+    const serialized = JSON.stringify(catalogue);
+    expect(serialized).not.toMatch(
+      /q-signature=|q-sign-key-time=|X-Amz-Credential=|Bearer /i,
+    );
+    expect(
+      catalogue.collections.every((c) => c.items.length === c.material_count),
+    ).toBe(true);
   });
 });
