@@ -4,7 +4,7 @@ from pathlib import Path
 
 import boto3
 from botocore.config import Config
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 
@@ -37,7 +37,16 @@ class MediaStorage:
     def put(self, key, data, content_type):
         path = self.local_path(key)
         if self.client:
-            self.client.put_object(Bucket=self.bucket, Key=key, Body=data, ContentType=content_type)
+            try:
+                self.client.put_object(Bucket=self.bucket, Key=key, Body=data, ContentType=content_type)
+            except ClientError as error:
+                code = error.response.get("Error", {}).get("Code")
+                status = error.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+                capacity = code in {"XMinioStorageFull", "InsufficientStorage", "StorageFull", "QuotaExceeded", "BucketQuotaExceeded"} or status == 507
+                detail = "Media storage capacity is exhausted" if capacity else "Media storage is temporarily unavailable"
+                raise HTTPException(503, detail + "; the upload could not be saved. Please try again later.") from None
+            except BotoCoreError:
+                raise HTTPException(503, "Media storage is temporarily unavailable; the upload could not be saved. Please try again later.") from None
         else:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(data)

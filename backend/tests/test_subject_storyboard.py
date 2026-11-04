@@ -111,7 +111,7 @@ def test_stale_shot_patch_does_not_reset_other_editor(client):
 
 
 def test_actual_material_catalogue_is_not_drawing_style_data(client):
-    collections = client.get("/api/material-presets").json()["collections"]
+    collections = [row for row in client.get("/api/material-presets").json()["collections"] if row["kind"] == "character"]
     assert len(collections) == 14
     assert sum(len(row["items"]) for row in collections) == 146
     assert collections[0]["id"] == "101"

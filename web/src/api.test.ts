@@ -1,5 +1,23 @@
 import { describe, it, expect, vi } from "vitest";
 describe("local account bootstrap", () => {
+  it("preserves rejection status so editors can correct rejected submissions safely", async () => {
+    vi.resetModules();
+    const original = globalThis.fetch;
+    globalThis.fetch = async (input) =>
+      String(input) === "/api/session"
+        ? new Response(JSON.stringify({ user: { id: "account" } }))
+        : new Response(JSON.stringify({ detail: "Stale target" }), {
+            status: 409,
+          });
+    try {
+      const { api } = await import("./api");
+      await expect(
+        api("/tasks", { method: "POST", body: "{}" }),
+      ).rejects.toMatchObject({ message: "Stale target", status: 409 });
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
   it("waits for a single session response before any authenticated request", async () => {
     vi.resetModules();
     const paths: string[] = [];

@@ -1,4 +1,13 @@
 let bootstrapPromise: Promise<any> | null = null;
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
 async function request<T = any>(
   path: string,
   options: RequestInit = {},
@@ -16,7 +25,7 @@ async function request<T = any>(
           ? body.detail
           : JSON.stringify(body.detail);
     } catch {}
-    throw new Error(detail);
+    throw new ApiError(detail, response.status);
   }
   if (response.status === 204) return undefined as T;
   return response.json();

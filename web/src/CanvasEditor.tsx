@@ -3,6 +3,7 @@ import {
   useContext,
   createContext,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -53,6 +54,7 @@ import {
   Copy,
   Settings,
   X,
+  Scissors,
 } from "lucide-react";
 import { api, json, upload } from "./api";
 import { canvasSnapshot } from "./domain";
@@ -67,18 +69,113 @@ import {
   type CanvasGraph,
 } from "./canvas-commands";
 import "./canvas-detail.css";
+import CanvasVersions, { type VersionGraph } from "./CanvasVersions";
+import MediaTools from "./MediaTools";
+import type { MediaKind } from "./media-tools-domain";
+import {
+  canvasMediaBaseline,
+  canvasMediaTarget,
+  canApplyCanvasMediaResult,
+  type CanvasMediaBaseline,
+} from "./canvas-media";
 import { useApp, Modal, Loading, ErrorPanel, Empty } from "./App";
 import type { Project, Task } from "./types";
 type MediaData = CanvasNodeData;
 type FlowNode = Node<MediaData>;
+export function canvasTaskMediaURL(task: Task): string {
+  const url = task.result.url || task.result[`${task.kind}_url`];
+  return task.status === "succeeded" &&
+    typeof url === "string" &&
+    /^\/media\/[a-zA-Z0-9_-]+\/[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(url)
+    ? url
+    : "";
+}
+type MediaWatchCallbacks = {
+  current: () => boolean;
+  read: () => Promise<Task>;
+  complete: (
+    task: Task,
+    baseline: CanvasMediaBaseline | null,
+  ) => Promise<void> | void;
+  failed: (task: Task) => void;
+  unavailable: (error: unknown) => void;
+  stopped: (interval: ReturnType<typeof setInterval>) => void;
+};
+
+export function watchCanvasMediaTask(
+  initial: Task,
+  baseline: CanvasMediaBaseline | null,
+  callbacks: MediaWatchCallbacks,
+) {
+  const submittedBaseline = baseline ? Object.freeze({ ...baseline }) : null;
+  let stopped = false,
+    reading = false,
+    warned = false;
+  function stop() {
+    if (stopped) return;
+    stopped = true;
+    clearInterval(interval);
+    callbacks.stopped(interval);
+  }
+  async function accept(task: Task) {
+    if (stopped) return;
+    if (!callbacks.current()) {
+      stop();
+      return;
+    }
+    if (task.status === "succeeded") {
+      stop();
+      await callbacks.complete(task, submittedBaseline);
+    } else if (["failed", "canceled"].includes(task.status)) {
+      stop();
+      callbacks.failed(task);
+    }
+  }
+  async function poll() {
+    if (stopped || reading) return;
+    if (!callbacks.current()) {
+      stop();
+      return;
+    }
+    reading = true;
+    try {
+      const result = await callbacks.read();
+      await accept(result);
+      warned = false;
+    } catch (error) {
+      if (!stopped && callbacks.current() && !warned) {
+        warned = true;
+        callbacks.unavailable(error);
+      }
+    } finally {
+      reading = false;
+    }
+  }
+  const interval = setInterval(() => void poll(), 1200);
+  // Registration happens before this microtask, including already-complete
+  // idempotent replays. The watcher belongs to the canvas, not its modal.
+  void Promise.resolve().then(async () => {
+    await accept(initial);
+    if (!stopped) await poll();
+  });
+  return { interval, stop };
+}
 const CanvasContext = createContext<{
   update: (id: string, patch: Partial<MediaData>) => void;
   remove: (id: string) => void;
   generate: (id: string, kind: string, prompt: string) => void;
   file: (id: string, file: File) => void;
-}>({ update: () => {}, remove: () => {}, generate: () => {}, file: () => {} });
+  editMedia: (id: string) => void;
+}>({
+  update: () => {},
+  remove: () => {},
+  generate: () => {},
+  file: () => {},
+  editMedia: () => {},
+});
 function MediaNode({ id, data, selected }: NodeProps<FlowNode>) {
-  const { update, remove, generate, file } = useContext(CanvasContext);
+  const { update, remove, generate, file, editMedia } =
+    useContext(CanvasContext);
   const Icon =
     data.kind === "text"
       ? Type
@@ -160,6 +257,20 @@ function MediaNode({ id, data, selected }: NodeProps<FlowNode>) {
               生成
             </button>
             {data.url && (
+              <button
+                className="nodrag"
+                aria-label={`编辑媒体 ${data.label}`}
+                onClick={() => editMedia(id)}
+              >
+                <Scissors size={13} />
+                {data.kind === "image"
+                  ? "剪裁"
+                  : data.kind === "audio"
+                    ? "音频截取"
+                    : "媒体编辑"}
+              </button>
+            )}
+            {data.url && (
               <a className="nodrag icon-button" href={data.url} download>
                 <Download size={14} />
               </a>
@@ -173,9 +284,11 @@ function MediaNode({ id, data, selected }: NodeProps<FlowNode>) {
 }
 const nodeTypes = { media: MediaNode };
 export default function CanvasEditor() {
+  const params = useParams();
+  const projectId = params.id || params.projectId || "";
   return (
-    <ReactFlowProvider>
-      <CanvasInner />
+    <ReactFlowProvider key={projectId}>
+      <CanvasInner key={projectId} />
     </ReactFlowProvider>
   );
 }
@@ -205,6 +318,20 @@ function CanvasInner() {
       null,
     ),
     [clipboardText, setClipboardText] = useState("");
+  const [versionsOpen, setVersionsOpen] = useState(false);
+  const [mediaSource, setMediaSource] = useState<{
+    nodeId: string;
+    url: string;
+    kind: MediaKind;
+  } | null>(null);
+  const mediaBaseline = useRef<CanvasMediaBaseline | null>(null);
+  const versionsOpenRef = useRef(false);
+  const restoreViewport = useRef<Promise<void> | null>(null);
+  const lifecycle = useRef({ mounted: false, epoch: 0 });
+  const loadRequest = useRef<AbortController | null>(null);
+  const viewportTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const taskPolls = useRef(new Set<ReturnType<typeof setInterval>>());
+  const mediaTasksWatched = useRef(new Set<string>());
   const editorRef = useRef<HTMLDivElement>(null);
   const pasteCount = useRef(0);
   const revisionRef = useRef(0),
@@ -217,6 +344,18 @@ function CanvasInner() {
     saveRef = useRef<() => Promise<void>>(async () => {}),
     graphHistory = useRef(new CanvasGraphHistory()),
     [historyVersion, setHistoryVersion] = useState(0);
+  useLayoutEffect(() => {
+    lifecycle.current.mounted = true;
+    return () => {
+      lifecycle.current.mounted = false;
+      lifecycle.current.epoch += 1;
+      loaded.current = false;
+      loadRequest.current?.abort();
+      if (viewportTimer.current) clearTimeout(viewportTimer.current);
+      for (const interval of taskPolls.current) clearInterval(interval);
+      taskPolls.current.clear();
+    };
+  }, []);
   // Update the ref with the same graph as React state so consecutive commands,
   // event callbacks and an in-flight save always observe the latest edit.
   const replaceGraph = useCallback(
@@ -232,13 +371,24 @@ function CanvasInner() {
     setHistoryVersion((v) => v + 1);
   }, []);
   const load = useCallback(async () => {
+    if (!lifecycle.current.mounted) return;
+    loadRequest.current?.abort();
+    if (viewportTimer.current) clearTimeout(viewportTimer.current);
+    const controller = new AbortController();
+    loadRequest.current = controller;
+    const epoch = ++lifecycle.current.epoch;
+    const current = () =>
+      lifecycle.current.mounted &&
+      lifecycle.current.epoch === epoch &&
+      !controller.signal.aborted;
     setLoading(true);
     setError("");
     try {
       const [p, graph] = await Promise.all([
-        api<Project>(`/projects/${id}`),
-        api<any>(`/projects/${id}/canvas`),
+        api<Project>(`/projects/${id}`, { signal: controller.signal }),
+        api<any>(`/projects/${id}/canvas`, { signal: controller.signal }),
       ]);
+      if (!current()) return;
       setProject(p);
       replaceGraph({ nodes: graph.nodes || [], edges: graph.edges || [] });
       graphHistory.current.clear();
@@ -251,20 +401,21 @@ function CanvasInner() {
         viewport: graph.viewport || { x: 0, y: 0, zoom: 1 },
       });
       loaded.current = true;
-      setTimeout(
-        () => flow.setViewport(graph.viewport || { x: 0, y: 0, zoom: 1 }),
-        50,
-      );
+      viewportTimer.current = setTimeout(() => {
+        if (current())
+          void flow.setViewport(graph.viewport || { x: 0, y: 0, zoom: 1 });
+      }, 50);
     } catch (e) {
-      setError((e as Error).message);
+      if (current()) setError((e as Error).message);
     } finally {
-      setLoading(false);
+      if (current()) setLoading(false);
     }
   }, [id]);
   useEffect(() => {
     load();
   }, [load]);
   async function save() {
+    if (restoreViewport.current) await restoreViewport.current;
     if (!loaded.current) return;
     if (flushPromise.current) return flushPromise.current;
     const flush = async () => {
@@ -289,12 +440,14 @@ function CanvasInner() {
             method: "PUT",
             body: json(graph),
           });
+          if (!lifecycle.current.mounted) return;
           revisionRef.current = result.revision ?? revisionRef.current + 1;
           setRevision(revisionRef.current);
           lastSaved.current = value;
         }
         setSaveState("已保存");
       } catch (e) {
+        if (!lifecycle.current.mounted) return;
         setSaveState("保存失败");
         notify((e as Error).message, "error");
         throw e;
@@ -310,6 +463,54 @@ function CanvasInner() {
     }
   }
   saveRef.current = save;
+  function openVersions() {
+    if (busy || modal) return;
+    versionsOpenRef.current = true;
+    setVersionsOpen(true);
+    setMenu(false);
+    setContextMenu(null);
+    setSpaceHeld(false);
+  }
+  async function prepareVersionAction() {
+    try {
+      await saveRef.current();
+      return loaded.current ? revisionRef.current : null;
+    } catch {
+      return null;
+    }
+  }
+  function applyRestoredVersion(graph: VersionGraph) {
+    if (!lifecycle.current.mounted) return;
+    const restored = { nodes: graph.nodes, edges: graph.edges };
+    const viewport = graph.viewport || { x: 0, y: 0, zoom: 1 };
+    replaceGraph(restored);
+    graphHistory.current.clear();
+    setHistoryVersion((version) => version + 1);
+    revisionRef.current = graph.revision;
+    setRevision(graph.revision);
+    const snapshot = canvasSnapshot(
+      restored.nodes,
+      restored.edges,
+      viewport,
+      graph.revision,
+    );
+    lastSaved.current = JSON.stringify({
+      nodes: snapshot.nodes,
+      edges: snapshot.edges,
+      viewport,
+    });
+    setSaveState("已保存");
+    // Any pending autosave waits until the restored viewport matches the
+    // fingerprint, so restoring a version does not create another edit.
+    restoreViewport.current = flow
+      .setViewport(viewport, { duration: 0 })
+      .then(() => {
+        if (lifecycle.current.mounted) setViewVersion((version) => version + 1);
+      })
+      .finally(() => {
+        restoreViewport.current = null;
+      });
+  }
   useEffect(() => {
     if (!loaded.current) return;
     setSaveState("等待保存");
@@ -326,6 +527,7 @@ function CanvasInner() {
   function commandBlocked(target: EventTarget | null) {
     const element = target instanceof Element ? target : null;
     return (
+      versionsOpenRef.current ||
       !!modal ||
       !!element?.closest(
         "input, textarea, select, [contenteditable]:not([contenteditable='false']), [role='dialog']",
@@ -418,11 +620,13 @@ function CanvasInner() {
     };
   });
   function applyCommand(graph: { nodes: FlowNode[]; edges: Edge[] }) {
+    if (versionsOpenRef.current) return;
     remember();
     replaceGraph(graph);
     setContextMenu(null);
   }
   function selectAll() {
+    if (versionsOpenRef.current) return;
     const graph = graphRef.current;
     replaceGraph({
       nodes: graph.nodes.map((node) => ({ ...node, selected: true })),
@@ -603,10 +807,104 @@ function CanvasInner() {
     }
   }
   function generate(nodeId: string, kind: string, text: string) {
+    if (versionsOpenRef.current) return;
     setTarget(nodeId);
     setTaskKind(kind);
     setPrompt(text);
     setModal("generate");
+  }
+  function editMedia(nodeId: string) {
+    if (versionsOpenRef.current || busy || modal) return;
+    const source = graphRef.current.nodes.find((node) => node.id === nodeId);
+    if (
+      !source?.data.url ||
+      !["image", "video", "audio"].includes(source.data.kind)
+    )
+      return;
+    mediaBaseline.current = null;
+    setMediaSource({
+      nodeId,
+      url: source.data.url,
+      kind: source.data.kind as MediaKind,
+    });
+    setModal("media-tools");
+  }
+  async function prepareMedia() {
+    if (!mediaSource) throw new Error("请选择源媒体节点");
+    await saveRef.current();
+    if (!lifecycle.current.mounted || !loaded.current)
+      throw new Error("当前画布不可用");
+    const parameters = canvasMediaTarget(
+      graphRef.current,
+      mediaSource.nodeId,
+      mediaSource.url,
+      revisionRef.current,
+    );
+    mediaBaseline.current = canvasMediaBaseline(
+      graphRef.current,
+      flow.getViewport(),
+      revisionRef.current,
+    );
+    return parameters;
+  }
+  async function completedMedia(
+    task: Task,
+    baseline: CanvasMediaBaseline | null,
+    epoch: number,
+  ) {
+    const current = () =>
+      lifecycle.current.mounted && lifecycle.current.epoch === epoch;
+    if (!current()) return;
+    const application = task.result.application as
+      { status?: string; canvas_revision?: number } | undefined;
+    const unchanged = () =>
+      canApplyCanvasMediaResult(
+        baseline,
+        graphRef.current,
+        flow.getViewport(),
+        revisionRef.current,
+      );
+    if (application?.status !== "applied" || !unchanged()) {
+      notify("处理已完成，画布有更新；结果已保留在生成记录");
+      return;
+    }
+    try {
+      const graph = await api<VersionGraph>(`/projects/${id}/canvas`);
+      if (!current()) return;
+      if (!unchanged()) {
+        notify("画布出现新编辑，未覆盖当前画布；处理结果已保留在生成记录");
+        return;
+      }
+      applyRestoredVersion(graph);
+      notify("处理完成，已创建关联媒体节点");
+    } catch (e) {
+      if (current())
+        notify(
+          `处理已完成，刷新画布失败：${(e as Error).message}；结果保留在生成记录`,
+          "error",
+        );
+    }
+  }
+  function watchMedia(task: Task) {
+    if (!lifecycle.current.mounted || mediaTasksWatched.current.has(task.id))
+      return;
+    mediaTasksWatched.current.add(task.id);
+    const epoch = lifecycle.current.epoch;
+    const watch = watchCanvasMediaTask(task, mediaBaseline.current, {
+      current: () =>
+        lifecycle.current.mounted && lifecycle.current.epoch === epoch,
+      read: () => api<Task>(`/tasks/${task.id}`),
+      complete: (result, baseline) => completedMedia(result, baseline, epoch),
+      failed: (result) =>
+        notify(result.error || "媒体处理失败，原始素材已保留", "error"),
+      unavailable: () =>
+        notify(
+          "媒体任务状态暂时无法读取，正在后台重试；任务可在生成记录查看",
+          "error",
+        ),
+      stopped: (interval) => taskPolls.current.delete(interval),
+    });
+    taskPolls.current.add(watch.interval);
   }
   async function submit() {
     setBusy(true);
@@ -627,8 +925,14 @@ function CanvasInner() {
       const interval = setInterval(async () => {
         try {
           const t = await api<Task>(`/tasks/${task.id}`);
+          if (!lifecycle.current.mounted) {
+            clearInterval(interval);
+            taskPolls.current.delete(interval);
+            return;
+          }
           if (["succeeded", "failed"].includes(t.status)) {
             clearInterval(interval);
+            taskPolls.current.delete(interval);
             if (t.status === "succeeded") {
               await save();
               await load();
@@ -641,8 +945,10 @@ function CanvasInner() {
           }
         } catch {
           clearInterval(interval);
+          taskPolls.current.delete(interval);
         }
       }, 2500);
+      taskPolls.current.add(interval);
     } catch (e) {
       notify((e as Error).message, "error");
     } finally {
@@ -650,6 +956,7 @@ function CanvasInner() {
     }
   }
   function undo() {
+    if (versionsOpenRef.current) return;
     const previous = graphHistory.current.undo(graphRef.current);
     if (!previous) return;
     replaceGraph(previous);
@@ -657,6 +964,7 @@ function CanvasInner() {
     setHistoryVersion((v) => v + 1);
   }
   function redo() {
+    if (versionsOpenRef.current) return;
     const next = graphHistory.current.redo(graphRef.current);
     if (!next) return;
     replaceGraph(next);
@@ -702,7 +1010,7 @@ function CanvasInner() {
     );
   return (
     <CanvasContext.Provider
-      value={{ update, remove, generate, file: importFileNode }}
+      value={{ update, remove, generate, file: importFileNode, editMedia }}
     >
       <div
         className="canvas-editor"
@@ -711,6 +1019,7 @@ function CanvasInner() {
         onDragOver={(e) => e.preventDefault()}
         onDrop={(e) => {
           e.preventDefault();
+          if (versionsOpenRef.current) return;
           if (e.dataTransfer.files[0]) importFile(e.dataTransfer.files[0]);
         }}
       >
@@ -725,6 +1034,7 @@ function CanvasInner() {
                 } catch {}
               }}
               aria-label="返回我的作品"
+              disabled={versionsOpen}
             >
               <ArrowLeft size={20} />
             </button>
@@ -746,6 +1056,7 @@ function CanvasInner() {
                   }
               }}
               aria-label="画布名称"
+              disabled={versionsOpen}
             />
             <span className="tag">画布</span>
             <span className="save-status">
@@ -754,21 +1065,32 @@ function CanvasInner() {
             </span>
           </div>
           <div>
-            <button onClick={openHistory}>
+            <button
+              onClick={openVersions}
+              disabled={busy || !!modal || versionsOpen}
+            >
               <History size={16} />
-              历史记录
+              版本历史
+            </button>
+            <button onClick={openHistory} disabled={versionsOpen}>
+              <History size={16} />
+              生成记录
             </button>
             <button onClick={exportGraph}>
               <Download size={16} />
               导出画布
             </button>
-            <button className="primary" onClick={() => save().catch(() => {})}>
+            <button
+              className="primary"
+              onClick={() => save().catch(() => {})}
+              disabled={versionsOpen}
+            >
               <Save size={15} />
               保存
             </button>
           </div>
         </header>
-        <div className="canvas-top-left">
+        <div className="canvas-top-left" inert={versionsOpen}>
           <div className="canvas-floating">
             <button
               onClick={undo}
@@ -803,7 +1125,7 @@ function CanvasInner() {
             </button>
           </div>
         </div>
-        <div className="canvas-left-tools">
+        <div className="canvas-left-tools" inert={versionsOpen}>
           <button
             className="primary icon-button"
             onClick={() => setMenu(!menu)}
@@ -866,6 +1188,7 @@ function CanvasInner() {
         <div
           className="canvas-command-toolbar canvas-floating"
           aria-label="画布编辑命令"
+          inert={versionsOpen}
         >
           <span>{nodes.filter((node) => node.selected).length} 个选中</span>
           <button onClick={selectAll} title="全选节点 (⌘/Ctrl+A)">
@@ -947,10 +1270,12 @@ function CanvasInner() {
           </div>
         )}
         <ReactFlow
+          inert={versionsOpen}
           nodes={nodes}
           edges={edges}
           nodeTypes={nodeTypes}
           onNodesChange={(changes: NodeChange<FlowNode>[]) => {
+            if (versionsOpenRef.current) return;
             const graph = graphRef.current;
             replaceGraph({
               ...graph,
@@ -958,6 +1283,7 @@ function CanvasInner() {
             });
           }}
           onEdgesChange={(changes: EdgeChange[]) => {
+            if (versionsOpenRef.current) return;
             const graph = graphRef.current;
             replaceGraph({
               ...graph,
@@ -974,9 +1300,12 @@ function CanvasInner() {
               ),
             });
           }}
-          onNodeDragStart={() => remember()}
+          onNodeDragStart={() => {
+            if (!versionsOpenRef.current) remember();
+          }}
           onNodeContextMenu={(event, node) => {
             event.preventDefault();
+            if (versionsOpenRef.current) return;
             const graph = graphRef.current;
             if (!node.selected)
               replaceGraph({
@@ -997,6 +1326,7 @@ function CanvasInner() {
           }}
           onPaneContextMenu={(event) => {
             event.preventDefault();
+            if (versionsOpenRef.current) return;
             setMenu(false);
             setContextMenu({
               x: Math.min(event.clientX, window.innerWidth - 222),
@@ -1028,7 +1358,7 @@ function CanvasInner() {
           />
         </ReactFlow>
         {!nodes.length && (
-          <div className="canvas-welcome">
+          <div className="canvas-welcome" inert={versionsOpen}>
             <div>✦</div>
             <h2>创意，从这里无限延伸</h2>
             <p>添加节点，或将素材拖入画布</p>
@@ -1044,6 +1374,7 @@ function CanvasInner() {
         </div>
         <button
           className="canvas-agent"
+          disabled={versionsOpen}
           onClick={() => {
             setModal("agent");
           }}
@@ -1051,6 +1382,34 @@ function CanvasInner() {
           <Sparkles size={19} />
           小漫 Agent
         </button>
+        {versionsOpen && (
+          <CanvasVersions
+            key={id}
+            projectId={id}
+            prepare={prepareVersionAction}
+            onRestored={applyRestoredVersion}
+            onClose={() => {
+              versionsOpenRef.current = false;
+              setVersionsOpen(false);
+            }}
+          />
+        )}
+        {modal === "media-tools" && mediaSource && (
+          <MediaTools
+            key={`${id}:${mediaSource.nodeId}:${mediaSource.url}`}
+            sourceUrl={mediaSource.url}
+            kind={mediaSource.kind}
+            projectId={id}
+            targetLabel="画布的新节点"
+            prepare={prepareMedia}
+            onSubmitted={watchMedia}
+            onComplete={() => {}}
+            onClose={() => {
+              setModal("");
+              setMediaSource(null);
+            }}
+          />
+        )}
         {busy && (
           <div className="canvas-busy">
             <LoaderCircle className="spin" size={16} />
@@ -1138,6 +1497,25 @@ function CanvasInner() {
                     </span>
                     <span className={`status ${t.status}`}>{t.status}</span>
                     <small>{t.error}</small>
+                    {canvasTaskMediaURL(t) && (
+                      <span className="actions">
+                        <a
+                          className="button"
+                          href={canvasTaskMediaURL(t)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          预览结果
+                        </a>
+                        <a
+                          className="button"
+                          href={canvasTaskMediaURL(t)}
+                          download
+                        >
+                          下载结果
+                        </a>
+                      </span>
+                    )}
                   </div>
                 ))
               ) : (

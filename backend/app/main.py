@@ -6,7 +6,7 @@ import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Header, HTTPException, Request, Response, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -21,8 +21,11 @@ from .mcp_local import register_mcp
 from .schemas import AssetInput, CanvasInput, EpisodeInput, ParseInput, ProfileInput, ProjectInput, ShotInput, TaskInput
 from .storage import MediaStorage
 from .exports import export_mp4, export_zip, validate_export
-from .targets import apply_target, capture_target
+from .targets import apply_target, capture_target, validate_output_node
 from .workflows import register_workflows
+from .canvas_versions import checkpoint, register_canvas_versions
+from .media_tools import inspect_media, validate_operation, execute_operation
+from .asset_creation import create_asset_record
 
 
 def serialize(row):
@@ -160,7 +163,23 @@ def create_app(database_url=None, media_root=None, session_secret=None):
 
     @app.get("/api/material-presets")
     def material_presets():
-        return json.loads(Path(__file__).with_name("material_presets.json").read_text())
+        character = json.loads(Path(__file__).with_name("material_presets.json").read_text())
+        extra = json.loads(Path(__file__).with_name("material_presets_extra.json").read_text())
+        return {**character, "collections": character["collections"] + extra["collections"], "sources": [character["source"], extra["source"]]}
+
+    @app.get("/api/material-presets/{kind}/{collection_id}/{item_id}/gallery")
+    def preset_gallery(kind: str, collection_id: str, item_id: str):
+        collection = next((row for row in material_presets()["collections"] if row["kind"] == kind and row["id"] == collection_id), None)
+        item = next((row for row in collection["items"] if row["id"] == item_id), None) if collection else None
+        if item is None:
+            raise HTTPException(404, "Preset not found")
+        manifest = Path(__file__).with_name("material_preset_galleries.json")
+        if not manifest.is_file():
+            raise HTTPException(503, "Preset gallery catalogue is unavailable")
+        galleries = json.loads(manifest.read_text())
+        selected = next((row for row in galleries["items"] if (row["kind"], row["collection_id"], row["item_id"]) == (kind, collection_id, item_id)), None)
+        entries = selected["gallery"] if selected else []
+        return {"kind": kind, "collection_id": collection_id, "item_id": item_id, "items": entries, "total": len(entries), "cached_count": sum(bool(row.get("url")) and not row.get("uncached") for row in entries)}
 
     @app.get("/api/projects")
     def list_projects(kind: str | None = None, q: str = "", oid=Depends(owner), session=Depends(database)):
@@ -274,11 +293,8 @@ def create_app(database_url=None, media_root=None, session_secret=None):
         return envelope([serialize(row) for row in rows if (not kind or row.data["kind"] == kind) and q.casefold() in row.data["name"].casefold()])
 
     @app.post("/api/assets", status_code=201)
-    def create_asset(body: AssetInput, oid=Depends(owner), session=Depends(database)):
-        row = Asset(owner_id=oid, data=body.model_dump())
-        session.add(row)
-        session.commit()
-        return serialize(row)
+    def create_asset(body: AssetInput, idempotency_key: str | None = Header(default=None, alias="Idempotency-Key", min_length=1, max_length=128), oid=Depends(owner), session=Depends(database)):
+        return serialize(create_asset_record(session, oid, body.model_dump(), idempotency_key))
 
     @app.patch("/api/assets/{aid}")
     def patch_asset(aid: str, body: dict, oid=Depends(owner), session=Depends(database)):
@@ -303,6 +319,7 @@ def create_app(database_url=None, media_root=None, session_secret=None):
         changed = session.execute(update(Canvas).where(Canvas.project_id == pid, Canvas.revision == body.revision).values(data=data, revision=body.revision + 1))
         if changed.rowcount != 1:
             raise HTTPException(409, "Canvas changed; reload before saving")
+        checkpoint(session, pid, oid, data, body.revision + 1)
         session.commit()
         return {**data, "revision": body.revision + 1}
 
@@ -385,6 +402,10 @@ def create_app(database_url=None, media_root=None, session_secret=None):
     def list_tasks(project_id: str | None = None, oid=Depends(owner), session=Depends(database)):
         return envelope([serialize(row) for row in session.scalars(select(Task).where(Task.owner_id == oid).order_by(Task.created_at.desc())).all() if not row.data.get("deleted") and (not project_id or row.project_id == project_id)])
 
+    @app.get("/api/media/inspect")
+    def media_inspection(source_url: str, oid=Depends(owner), session=Depends(database)):
+        return inspect_media(app, session, oid, source_url)
+
     @app.post("/api/tasks", status_code=202)
     def submit_task(body: TaskInput, background: BackgroundTasks, oid=Depends(owner), session=Depends(database)):
         payload = body.model_dump()
@@ -398,20 +419,27 @@ def create_app(database_url=None, media_root=None, session_secret=None):
             return serialize(existing)
         if body.project_id:
             owned(session, Project, body.project_id, oid)
+        validate_output_node(body.parameters)
+        parameters = body.parameters
+        local_operation = "operation" in parameters
         if body.kind == "export":
+            if local_operation:
+                raise HTTPException(422, "Media operations require an image, video or audio task")
             if not body.project_id:
                 raise HTTPException(422, "Export requires a project")
             validate_export(session, oid, body.project_id, body.parameters)
+        elif local_operation:
+            parameters = validate_operation(app, session, oid, body.kind, parameters)
         elif not app.state.provider.available(body.kind):
             raise HTTPException(503, f"{body.kind} provider is not configured; no credits charged")
-        cost = 0 if body.kind == "export" else 1
+        cost = 0 if body.kind == "export" or local_operation else 1
         charged = session.execute(update(User).where(User.id == oid, User.credits >= cost).values(credits=User.credits - cost))
         if charged.rowcount != 1:
             session.rollback()
             raise HTTPException(402, "Insufficient local credits")
         # This write serializes owner submissions on PostgreSQL before checking active targets.
-        target = capture_target(session, oid, body.project_id, body.parameters, body.kind) if body.kind != "export" else None
-        task = Task(owner_id=oid, kind=body.kind, project_id=body.project_id, idempotency_key=body.idempotency_key, request_hash=fingerprint, data={"prompt": body.prompt, "parameters": body.parameters, "cost": cost, "target": target, "executor": os.getenv("TASK_EXECUTOR", "background")})
+        target = capture_target(session, oid, body.project_id, parameters, body.kind) if body.kind != "export" else None
+        task = Task(owner_id=oid, kind=body.kind, project_id=body.project_id, idempotency_key=body.idempotency_key, request_hash=fingerprint, data={"prompt": body.prompt, "parameters": parameters, "cost": cost, "target": target, "executor": os.getenv("TASK_EXECUTOR", "background")})
         session.add(task)
         try:
             session.flush()
@@ -480,6 +508,7 @@ def create_app(database_url=None, media_root=None, session_secret=None):
         return {"description": description, "inputSchema": {"type": "object", "properties": {name: {"type": "string"} for name in fields}, "required": list(required), "additionalProperties": False}, "fn": invoke}
 
     register_workflows(app, owner, database, owned, serialize)
+    register_canvas_versions(app, owner, database, owned)
     register_mcp(app, owner, database, {
         "list_projects": string_tool("List the local key owner's projects", ("kind", "q"), (), lambda a, o, s: list_projects(kind=a.get("kind"), q=a.get("q", ""), oid=o, session=s)),
         "get_project": string_tool("Read an owned project", ("project_id",), ("project_id",), lambda a, o, s: get_project(a["project_id"], oid=o, session=s)),
@@ -540,7 +569,11 @@ def execute_task(app, task_id, recover_interrupted=False):
                 result = app.state.store_bytes(session, oid, contents, filename, content_type)
                 session.commit()
         else:
-            result = app.state.provider.generate(kind, payload["prompt"], payload["parameters"])
+            if "operation" in payload["parameters"]:
+                with app.state.session_factory() as session:
+                    result = execute_operation(app, session, oid, payload["parameters"])
+            else:
+                result = app.state.provider.generate(kind, payload["prompt"], payload["parameters"])
             byte_key = next((key for key in ("_image_bytes", "_audio_bytes", "_video_bytes") if key in result), None)
             if byte_key:
                 data = result.pop(byte_key)

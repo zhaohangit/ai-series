@@ -133,6 +133,131 @@
   flex: 1;
   line-height: 1.8;
 }
+.preset-detail-scroll {
+  overflow-y: auto;
+  max-height: 72vh;
+}
+.preset-character-detail .preset-selected-image {
+  flex: 0 0 45%;
+  position: relative;
+  min-height: 220px;
+  background: #060606;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.preset-selected-image > img {
+  width: 100%;
+  height: 100%;
+  max-height: 40vh;
+  object-fit: contain;
+}
+.preset-selected-image > span {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  background: #111b;
+  padding: 3px 8px;
+  font-size: 12px;
+  border-radius: 4px;
+}
+.preset-uncached {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  color: #999;
+  font-size: 12px;
+}
+.preset-gallery {
+  padding: 0 20px 20px;
+}
+.preset-gallery > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0;
+  border: 0;
+  color: #999;
+  font-size: 12px;
+}
+.preset-gallery h3 {
+  font-size: 15px;
+  color: #eee;
+  margin: 6px 0 14px;
+}
+.preset-gallery h3 span {
+  color: #999;
+  font-size: 12px;
+  font-weight: 400;
+  margin-left: 6px;
+}
+.preset-gallery nav {
+  display: flex;
+  gap: 7px;
+  overflow: auto;
+  margin-bottom: 14px;
+}
+.preset-gallery nav button {
+  white-space: nowrap;
+  padding: 5px 12px;
+  font-size: 12px;
+}
+.preset-gallery button.active {
+  border-color: #3088ed;
+  color: #78b3ff;
+}
+.preset-gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 10px;
+}
+.preset-gallery-grid button {
+  display: block;
+  overflow: hidden;
+  padding: 0;
+  min-width: 0;
+  background: #191919;
+  border: 1px solid #444;
+}
+.preset-gallery-grid img,
+.preset-gallery-grid button > div {
+  height: 120px;
+  width: 100%;
+  object-fit: contain;
+  background: #090909;
+}
+.preset-gallery-grid button > div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #888;
+  font-size: 11px;
+}
+.preset-gallery-grid strong {
+  display: block;
+  padding: 7px;
+  font-size: 12px;
+  font-weight: 400;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.preset-gallery-note {
+  font-size: 12px;
+  line-height: 1.7;
+  color: #aaa;
+  margin: 14px 0 0;
+}
+.preset-gallery-progress {
+  display: flex;
+  gap: 8px;
+  padding: 0 20px;
+  font-size: 13px;
+  color: #9ec8fa;
+}
 .preset-footer {
   text-align: center;
   color: #555;

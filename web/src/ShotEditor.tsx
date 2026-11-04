@@ -20,10 +20,13 @@ import {
   Download,
   LoaderCircle,
   Trash2,
+  Scissors,
 } from "lucide-react";
 import { api, json, upload } from "./api";
 import { useApp, useResource, Loading, ErrorPanel, Modal, Empty } from "./App";
 import type { Project, Shot, Task, Asset } from "./types";
+import MediaTools from "./MediaTools";
+import type { MediaKind } from "./media-tools-domain";
 export function providerLabel(configured: boolean) {
   return configured ? "本地服务已配置" : "服务未配置 · 提交不扣费";
 }
@@ -93,6 +96,10 @@ export default function ShotEditor() {
     [modal, setModal] = useState(""),
     [showHistory, setShowHistory] = useState(true),
     [picked, setPicked] = useState<string[]>([]);
+  const [editingSource, setEditingSource] = useState<{
+    url: string;
+    kind: MediaKind;
+  } | null>(null);
   const shot = data.items.find((s) => s.id === shotId);
   useEffect(() => {
     if (shot) {
@@ -111,7 +118,7 @@ export default function ShotEditor() {
   }, [shot?.id]);
   async function save() {
     if (!shot) return;
-    await api(`/shots/${shot.id}`, {
+    return await api<Shot & { updated_at: string }>(`/shots/${shot.id}`, {
       method: "PATCH",
       body: json({
         prompt,
@@ -519,6 +526,19 @@ export default function ShotEditor() {
                 <Users size={20} />
               </button>
               {media && (
+                <button
+                  className="icon-button"
+                  title="媒体编辑"
+                  aria-label="媒体编辑"
+                  onClick={() => {
+                    setEditingSource({ url: media, kind: tab as MediaKind });
+                    setModal("media-tools");
+                  }}
+                >
+                  <Scissors size={20} />
+                </button>
+              )}
+              {media && (
                 <a className="icon-button" href={media} download title="下载">
                   <Download size={20} />
                 </a>
@@ -678,6 +698,28 @@ export default function ShotEditor() {
             )}
           </div>
         </Modal>
+      )}
+      {modal === "media-tools" && editingSource && (
+        <MediaTools
+          key={`${shotId}:${editingSource.url}`}
+          sourceUrl={editingSource.url}
+          kind={editingSource.kind}
+          projectId={shotProjectId}
+          prepare={async () => {
+            const saved = await save();
+            if (!saved) throw new Error("分镜不可用");
+            return { shot_id: shotId, shot_updated_at: saved.updated_at };
+          }}
+          onComplete={() => {
+            refresh();
+            refreshTasks();
+          }}
+          onClose={() => {
+            setModal("");
+            refresh();
+            refreshTasks();
+          }}
+        />
       )}
     </div>
   );

@@ -443,6 +443,14 @@ function App() {
               path="/material/roleDetail"
               element={<PresetLibrary kind="character" />}
             />
+            <Route
+              path="/material/sceneDetail"
+              element={<PresetLibrary kind="scene" />}
+            />
+            <Route
+              path="/material/effectsDetail"
+              element={<PresetLibrary kind="effect" />}
+            />
             <Route path="/task-center" element={<TaskPage />} />
             <Route path="/mcp-guide" element={<GuidePage />} />
             <Route path="/operation-manual" element={<GuidePage manual />} />
@@ -883,7 +891,9 @@ function MaterialPage() {
       <PresetLibrary
         kind={kind}
         onKind={setKind}
-        onOwn={() => navigate("/material?category=1&active=1")}
+        onOwn={() =>
+          navigate(`/material?category=${materialCodes[kind] || "1"}&active=1`)
+        }
       />
     );
   return (
@@ -903,15 +913,20 @@ function MaterialPage() {
       <div className="material-source">
         <button
           className={source === "own" ? "active" : ""}
-          onClick={() => setSource("own")}
+          onClick={() =>
+            navigate(
+              `/material?category=${materialCodes[kind] || "1"}&active=1`,
+            )
+          }
         >
           我的
         </button>
         <button
           className={source === "preset" ? "active" : ""}
           onClick={() => {
-            setKind("character");
-            navigate("/material?category=1&active=2");
+            navigate(
+              `/material?category=${materialCodes[kind] || "1"}&active=2`,
+            );
           }}
         >
           预设
