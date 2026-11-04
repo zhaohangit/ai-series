@@ -61,7 +61,7 @@ import {
   Users,
 } from "lucide-react";
 import { api, json, upload, freshSession } from "./api";
-import { validateName, filterTasks, uploadProblem } from "./domain";
+import { materialPresetItems, validateName, filterTasks, uploadProblem } from "./domain";
 import type {
   Session,
   Project,
@@ -211,7 +211,7 @@ export function useResource<T>(path: string, initial: T) {
 const nav = [
   { to: "/home", label: "首页", icon: HomeIcon },
   { to: "/work", label: "我的作品", icon: LayoutGrid },
-  { to: "/material", label: "素材库", icon: Layers },
+  { to: "/material?category=1&active=2", label: "素材库", icon: Layers },
   { to: "/task-center", label: "任务中心", icon: ClipboardList },
 ];
 function App() {
@@ -260,6 +260,14 @@ function App() {
               ...s,
               id: String(s.id),
               url: s.imageUrl,
+            })),
+        presets: local.presets.length
+          ? local.presets
+          : (reference.styles || []).map((s: any) => ({
+              ...s,
+              id: String(s.id),
+              url: s.imageUrl,
+              style: s.tags?.[0] || "通用",
             })),
         announcements: local.announcements.length
           ? local.announcements
@@ -759,7 +767,7 @@ const materialKinds = [
   ["voice", "音色库"],
 ];
 function MaterialPage() {
-  const [source, setSource] = useState("own"),
+  const [source, setSource] = useState("preset"),
     [kind, setKind] = useState("character"),
     [q, setQ] = useState(""),
     [group, setGroup] = useState("全部"),
@@ -778,7 +786,7 @@ function MaterialPage() {
     items: [],
     total: 0,
   });
-  const presets = (catalog.presets || []).filter(
+  const presets = materialPresetItems(catalog).filter(
     (p) =>
       (!p.kind || p.kind === kind) &&
       (!q || `${p.name} ${p.description}`.includes(q)),
@@ -844,7 +852,7 @@ function MaterialPage() {
       <div className="page-title">
         <div>
           <h1>素材库</h1>
-          <p>收集创作灵感，构筑你的专属世界</p>
+          <p>查看和管理你的漫剧素材</p>
         </div>
         {source === "own" && (
           <button className="primary" onClick={() => open()}>
@@ -858,13 +866,13 @@ function MaterialPage() {
           className={source === "own" ? "active" : ""}
           onClick={() => setSource("own")}
         >
-          我的素材
+          我的
         </button>
         <button
           className={source === "preset" ? "active" : ""}
           onClick={() => setSource("preset")}
         >
-          预设素材
+          预设
         </button>
       </div>
       <div className="page-toolbar">
@@ -879,29 +887,16 @@ function MaterialPage() {
             </button>
           ))}
         </div>
+        {source === "preset" && <span className="material-count">共 {presets.length} 项</span>}
         <label className="search-field">
           <Search size={16} />
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="搜索素材"
+            placeholder="输入名称进行搜索"
           />
         </label>
       </div>
-      {source === "preset" && (
-        <div className="filter-line">
-          <span>风格</span>
-          {["全部", "古风", "现代", "动漫", "写实", "科幻"].map((g) => (
-            <button
-              className={g === group ? "active" : ""}
-              onClick={() => setGroup(g)}
-              key={g}
-            >
-              {g}
-            </button>
-          ))}
-        </div>
-      )}
       {source === "own" ? (
         error ? (
           <ErrorPanel error={error} onRetry={refresh} />
@@ -1124,13 +1119,13 @@ function TaskPage() {
             className={tab === "generation" ? "active" : ""}
             onClick={() => setTab("generation")}
           >
-            合成任务
+            合成
           </button>
           <button
             className={tab === "download" ? "active" : ""}
             onClick={() => setTab("download")}
           >
-            下载任务
+            下载
           </button>
         </div>
         <button disabled={!selected.length} onClick={() => remove(selected)}>

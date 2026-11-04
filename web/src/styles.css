@@ -1182,6 +1182,12 @@ small,
 .material-source > button.active {
   color: #f3f3f7;
 }
+.material-count {
+  margin-right: auto;
+  color: #8d8d98;
+  font-size: 14px;
+  white-space: nowrap;
+}
 .asset-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));

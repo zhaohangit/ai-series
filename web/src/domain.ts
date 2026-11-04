@@ -35,3 +35,10 @@ export function canvasSnapshot<T extends { selected?: boolean }>(
     revision,
   };
 }
+
+export function materialPresetItems(catalog: {
+  presets?: Array<Record<string, any>>;
+  styles?: Array<Record<string, any>>;
+}) {
+  return catalog.presets?.length ? catalog.presets : catalog.styles || [];
+}
