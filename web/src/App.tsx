@@ -59,6 +59,7 @@ import {
   HelpCircle,
   Mail,
   Users,
+  Cable,
 } from "lucide-react";
 import { api, json, upload, freshSession } from "./api";
 import { materialPresetItems, validateName, filterTasks, uploadProblem } from "./domain";
@@ -326,7 +327,7 @@ function App() {
             <div className="sidebar-bottom">
               <div className="secondary-nav">
                 <NavLink to="/mcp-guide" className="nav-item" title="MCP">
-                  <span className="mcp-icon">♧</span>
+                  <Cable size={18} aria-hidden="true" />
                   {!collapsed && (
                     <span>
                       MCP <span className="badge-new">NEW</span>
