@@ -24,6 +24,40 @@ import {
 import { api, json, upload } from "./api";
 import { useApp, useResource, Loading, ErrorPanel, Modal, Empty } from "./App";
 import type { Project, Shot, Task, Asset } from "./types";
+export function providerLabel(configured: boolean) {
+  return configured ? "本地服务已配置" : "服务未配置 · 提交不扣费";
+}
+export function mediaEmptyLabel(tab: string) {
+  const medium = tab === "image" ? "图" : tab === "video" ? "视频" : "音频";
+  return `暂无预览${medium}，可拖拽至此上传${tab === "image" ? "图片" : "媒体"}`;
+}
+function shotTaskStatus(status: string) {
+  return (
+    (
+      {
+        queued: "排队中",
+        running: "生成中",
+        succeeded: "已完成",
+        failed: "失败",
+        canceled: "已取消",
+      } as Record<string, string>
+    )[status] || status
+  );
+}
+function modelDescription(model: string, tab: string) {
+  if (tab === "video") {
+    return model === "MiniMax H3"
+      ? "全模态参考，复杂指令精准生成"
+      : model === "Seedance 2.0"
+        ? "动作连贯，适合镜头运动"
+        : "参考模型名称 · 生成使用本地配置的服务";
+  }
+  if (tab === "image" && model === "生花 T1")
+    return "精准表达构想，多主体参考更强";
+  if (tab === "image" && model === "生花 G2")
+    return "理解力更强，文字更准确，直出更真实";
+  return "参考模型名称 · 生成使用本地配置的服务";
+}
 export default function ShotEditor() {
   const { shotProjectId = "", shotId = "" } = useParams(),
     nav = useNavigate(),
@@ -46,10 +80,13 @@ export default function ShotEditor() {
     });
   const [tab, setTab] = useState("image"),
     [mode, setMode] = useState("reference"),
+    [videoMode, setVideoMode] = useState("image-to-video"),
     [prompt, setPrompt] = useState(""),
     [dialogue, setDialogue] = useState(""),
     [duration, setDuration] = useState(5),
     [ratio, setRatio] = useState("16:9"),
+    [resolution, setResolution] = useState("768P"),
+    [cameraMotion, setCameraMotion] = useState("无运镜"),
     [model, setModel] = useState("生花 T1"),
     [busy, setBusy] = useState(false),
     [references, setReferences] = useState<string[]>([]),
@@ -65,7 +102,11 @@ export default function ShotEditor() {
       setRatio(
         String(shot.settings?.aspect_ratio || project?.aspect_ratio || "16:9"),
       );
+      setModel(String(shot.settings?.model || "生花 T1"));
+      setResolution(String(shot.settings?.resolution || "768P"));
+      setCameraMotion(String(shot.settings?.camera_motion || "无运镜"));
       setReferences((shot.settings?.references || []) as string[]);
+      setPicked((shot.settings?.asset_ids || []) as string[]);
     }
   }, [shot?.id]);
   async function save() {
@@ -82,6 +123,9 @@ export default function ShotEditor() {
           model,
           references,
           asset_ids: picked,
+          resolution,
+          camera_motion: cameraMotion,
+          generation_mode: tab === "video" ? videoMode : mode,
         },
       }),
     });
@@ -137,6 +181,9 @@ export default function ShotEditor() {
             duration,
             references,
             asset_ids: picked,
+            resolution,
+            camera_motion: cameraMotion,
+            generation_mode: tab === "video" ? videoMode : mode,
           },
           idempotency_key: crypto.randomUUID(),
         }),
@@ -246,6 +293,23 @@ export default function ShotEditor() {
               </button>
             </div>
           )}
+          {tab === "video" && (
+            <div className="generation-mode video-mode">
+              {[
+                ["image-to-video", "图生视频"],
+                ["reference-video", "参考生视频"],
+                ["first-last-frame", "首尾帧"],
+              ].map(([key, name]) => (
+                <button
+                  key={key}
+                  className={videoMode === key ? "active" : ""}
+                  onClick={() => setVideoMode(key)}
+                >
+                  {name}
+                </button>
+              ))}
+            </div>
+          )}
           {tab !== "audio" && (
             <label>
               {tab === "image" ? "生图" : "视频"}比例
@@ -256,6 +320,32 @@ export default function ShotEditor() {
               </select>
             </label>
           )}
+          {tab === "video" && (
+            <>
+              <label>
+                分辨率
+                <select
+                  value={resolution}
+                  onChange={(e) => setResolution(e.target.value)}
+                >
+                  <option>768P</option>
+                  <option>1080P</option>
+                </select>
+              </label>
+              <label>
+                视频运镜
+                <select
+                  value={cameraMotion}
+                  onChange={(e) => setCameraMotion(e.target.value)}
+                >
+                  <option>无运镜</option>
+                  <option>缓慢推近</option>
+                  <option>环绕镜头</option>
+                  <option>跟随主体</option>
+                </select>
+              </label>
+            </>
+          )}
           <label>
             {tab === "image" ? "生图" : tab === "video" ? "视频" : "音频"}模型
             <div className="studio-model">
@@ -263,13 +353,18 @@ export default function ShotEditor() {
                 {(tab === "image"
                   ? ["生花 T1", "生花 G2", "Seedream 4.0"]
                   : tab === "video"
-                    ? ["Seedance 2.0", "Kling 4.0", "MiniMax H3"]
+                    ? [
+                        "MiniMax H3",
+                        "Seedance 2.0",
+                        "Kling 4.0",
+                        "本地视频模型",
+                      ]
                     : ["Seed Audio 1.0", "本地音频模型"]
                 ).map((m) => (
                   <option key={m}>{m}</option>
                 ))}
               </select>
-              <small>参考模型名称 · 生成使用本地配置的服务</small>
+              <small>{modelDescription(model, tab)}</small>
             </div>
           </label>
           {(mode === "reference" || tab !== "image") && (
@@ -311,7 +406,7 @@ export default function ShotEditor() {
                   ))}
                 </div>
               ) : (
-                <p>暂无素材</p>
+                <p>暂无素材，可上传参考图或从主体素材中选择</p>
               )}
             </div>
           )}
@@ -365,9 +460,7 @@ export default function ShotEditor() {
           )}
           <div className="studio-generate">
             <small>
-              {session?.provider_status?.[tab]
-                ? "本地服务已配置"
-                : "服务未配置 · 提交不扣费"}
+              {providerLabel(Boolean(session?.provider_status?.[tab]))}
             </small>
             <button className="primary" disabled={busy} onClick={submit}>
               {busy ? (
@@ -399,10 +492,7 @@ export default function ShotEditor() {
             ) : (
               <div className="studio-empty-preview">
                 <img src="/reference/embedded-016f974b60b1.png" alt="" />
-                <p>
-                  暂无预览{tab === "image" ? "图" : "内容"}，可拖拽至此上传
-                  {tab === "image" ? "图片" : "媒体"}
-                </p>
+                <p>{mediaEmptyLabel(tab)}</p>
               </div>
             )}
             <div className="studio-preview-tools">
@@ -500,7 +590,9 @@ export default function ShotEditor() {
                 .filter((t) => (t as any).parameters?.shot_id === shotId)
                 .map((t) => (
                   <article key={t.id}>
-                    <span className={`status ${t.status}`}>{t.status}</span>
+                    <span className={`status ${t.status}`}>
+                      {shotTaskStatus(t.status)}
+                    </span>
                     <small>
                       {new Date(t.created_at).toLocaleString("zh-CN")}
                     </small>
@@ -512,7 +604,7 @@ export default function ShotEditor() {
                           下载结果
                         </a>
                       ))}
-                    <p>{t.error}</p>
+                    {t.error ? <p className="danger-text">{t.error}</p> : null}
                   </article>
                 ))
             ) : (

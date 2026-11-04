@@ -1,12 +1,5 @@
 import { useState } from "react";
-import {
-  ChevronDown,
-  Check,
-  ArrowRight,
-  Save,
-  Palette,
-  Upload,
-} from "lucide-react";
+import { Check, Save, Palette } from "lucide-react";
 import type { Project, Catalog } from "./types";
 export default function StyleWorkspace({
   project,
@@ -42,6 +35,7 @@ export default function StyleWorkspace({
           绘图模型
           <div className="model-select">
             <select
+              aria-label="绘图模型"
               value={model}
               onChange={(e) => {
                 setModel(e.target.value);
@@ -66,6 +60,7 @@ export default function StyleWorkspace({
         <label>
           绘图模板
           <select
+            aria-label="绘图模板"
             value={template}
             onChange={(e) => {
               setTemplate(e.target.value);
@@ -135,6 +130,7 @@ export default function StyleWorkspace({
                 "国风武侠",
               ].map((g) => (
                 <button
+                  type="button"
                   key={g}
                   className={group === g ? "active" : ""}
                   onClick={() => setGroup(g)}
@@ -143,7 +139,7 @@ export default function StyleWorkspace({
                 </button>
               ))}
             </div>
-            <div className="style-catalog-grid">
+            <div className="style-catalog-grid" aria-label="预设风格">
               {styles.map((s) => (
                 <button
                   key={s.id || s.name}
@@ -153,7 +149,7 @@ export default function StyleWorkspace({
                   {s.url || s.imageUrl ? (
                     <img src={s.url || s.imageUrl} alt={s.name} />
                   ) : (
-                    <Palette size={30} />
+                    <Palette size={30} aria-hidden="true" />
                   )}
                   <span>{s.name}</span>
                   {selected === s && <Check size={16} />}
@@ -163,7 +159,7 @@ export default function StyleWorkspace({
           </>
         )}
         <h3>画面比例</h3>
-        <div className="style-aspects">
+        <div className="style-aspects" aria-label="画面比例">
           {["16:9", "9:16", "1:1", "4:3", "3:4"].map((r) => (
             <button
               className={project.aspect_ratio === r ? "active" : ""}

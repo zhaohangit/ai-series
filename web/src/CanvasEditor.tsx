@@ -194,7 +194,8 @@ function CanvasInner() {
     [prompt, setPrompt] = useState(""),
     [target, setTarget] = useState(""),
     [busy, setBusy] = useState(false),
-    [history, setHistory] = useState<Task[]>([]);
+    [history, setHistory] = useState<Task[]>([]),
+    [spaceHeld, setSpaceHeld] = useState(false);
   const revisionRef = useRef(0),
     loaded = useRef(false),
     lastSaved = useRef(""),
@@ -207,11 +208,11 @@ function CanvasInner() {
     redoRef = useRef<Array<{ nodes: FlowNode[]; edges: Edge[] }>>([]),
     [historyVersion, setHistoryVersion] = useState(0);
   const remember = useCallback(() => {
-    undoRef.current.push(structuredClone({ nodes, edges }));
+    undoRef.current.push(structuredClone(graphRef.current));
     if (undoRef.current.length > 50) undoRef.current.shift();
     redoRef.current = [];
     setHistoryVersion((v) => v + 1);
-  }, [nodes, edges]);
+  }, []);
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -223,6 +224,9 @@ function CanvasInner() {
       setProject(p);
       setNodes(graph.nodes || []);
       setEdges(graph.edges || []);
+      undoRef.current = [];
+      redoRef.current = [];
+      setHistoryVersion((v) => v + 1);
       revisionRef.current = graph.revision || 0;
       setRevision(revisionRef.current);
       lastSaved.current = JSON.stringify({
@@ -304,6 +308,48 @@ function CanvasInner() {
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, []);
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const editing =
+        target?.tagName === "INPUT" ||
+        target?.tagName === "TEXTAREA" ||
+        target?.isContentEditable;
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
+        if (editing) return;
+        event.preventDefault();
+        if (event.shiftKey) redo();
+        else undo();
+        return;
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "y") {
+        if (editing) return;
+        event.preventDefault();
+        redo();
+        return;
+      }
+      if (event.key === "Escape" && menu) {
+        setMenu(false);
+        return;
+      }
+      if (event.key === " " && !editing) {
+        event.preventDefault();
+        setSpaceHeld(true);
+      }
+    };
+    const release = (event: KeyboardEvent) => {
+      if (event.key === " ") setSpaceHeld(false);
+    };
+    const blur = () => setSpaceHeld(false);
+    window.addEventListener("keydown", handler);
+    window.addEventListener("keyup", release);
+    window.addEventListener("blur", blur);
+    return () => {
+      window.removeEventListener("keydown", handler);
+      window.removeEventListener("keyup", release);
+      window.removeEventListener("blur", blur);
+    };
+  });
   function update(nodeId: string, patch: Partial<MediaData>) {
     remember();
     setNodes((n) =>
@@ -433,7 +479,7 @@ function CanvasInner() {
   function undo() {
     const previous = undoRef.current.pop();
     if (!previous) return;
-    redoRef.current.push(structuredClone({ nodes, edges }));
+    redoRef.current.push(structuredClone(graphRef.current));
     setNodes(previous.nodes);
     setEdges(previous.edges);
     setHistoryVersion((v) => v + 1);
@@ -441,7 +487,7 @@ function CanvasInner() {
   function redo() {
     const next = redoRef.current.pop();
     if (!next) return;
-    undoRef.current.push(structuredClone({ nodes, edges }));
+    undoRef.current.push(structuredClone(graphRef.current));
     setNodes(next.nodes);
     setEdges(next.edges);
     setHistoryVersion((v) => v + 1);
@@ -590,6 +636,8 @@ function CanvasInner() {
             className="primary icon-button"
             onClick={() => setMenu(!menu)}
             title="添加节点"
+              aria-label="添加节点"
+              aria-expanded={menu}
           >
             <Plus size={23} />
           </button>
@@ -662,9 +710,14 @@ function CanvasInner() {
             );
           }}
           onNodeDragStart={() => remember()}
+          onBeforeDelete={() => {
+            remember();
+            return Promise.resolve(true);
+          }}
+          onPaneClick={() => setMenu(false)}
           onMoveEnd={() => setViewVersion((v) => v + 1)}
-          panOnDrag={pan ? [0, 1, 2] : [1, 2]}
-          selectionOnDrag={!pan}
+          panOnDrag={pan || spaceHeld ? [0, 1, 2] : [1, 2]}
+          selectionOnDrag={!pan && !spaceHeld}
           minZoom={0.15}
           maxZoom={2}
           colorMode="dark"

@@ -42,3 +42,24 @@ export function materialPresetItems(catalog: {
 }) {
   return catalog.presets?.length ? catalog.presets : catalog.styles || [];
 }
+
+export const referencePresetStyleNames = [
+  "民俗克系",
+  "诡秘克系",
+  "赛博朋克",
+  "中式仙侠",
+  "3D国漫",
+  "年代海报",
+  "古典历史",
+  "动漫电影",
+  "韩系漫画",
+  "青春校园",
+  "昏暗色调",
+  "古风插画",
+  "都市异能",
+  "东方玄幻",
+];
+
+export function referencePresetItems(items: Array<Record<string, any>>) {
+  return items.filter((item) => referencePresetStyleNames.includes(String(item.name)));
+}

@@ -62,7 +62,7 @@ import {
   Cable,
 } from "lucide-react";
 import { api, json, upload, freshSession } from "./api";
-import { materialPresetItems, validateName, filterTasks, uploadProblem } from "./domain";
+import { materialPresetItems, referencePresetItems, validateName, filterTasks, uploadProblem } from "./domain";
 import type {
   Session,
   Project,
@@ -787,7 +787,8 @@ function MaterialPage() {
     items: [],
     total: 0,
   });
-  const presets = materialPresetItems(catalog).filter(
+  const presetCatalog = referencePresetItems(materialPresetItems(catalog));
+  const presets = presetCatalog.filter(
     (p) =>
       (!p.kind || p.kind === kind) &&
       (!q || `${p.name} ${p.description}`.includes(q)),
@@ -871,14 +872,19 @@ function MaterialPage() {
         </button>
         <button
           className={source === "preset" ? "active" : ""}
-          onClick={() => setSource("preset")}
+          onClick={() => {
+            setSource("preset");
+            setKind("character");
+          }}
         >
           预设
         </button>
       </div>
       <div className="page-toolbar">
         <div className="tabs">
-          {materialKinds.map(([key, label]) => (
+          {materialKinds
+            .filter(([key]) => source === "own" || key !== "voice")
+            .map(([key, label]) => (
             <button
               key={key}
               className={kind === key ? "active" : ""}
@@ -961,7 +967,7 @@ function MaterialPage() {
                 String(p.style || p.group || "").includes(group),
             )
             .map((a, i) => (
-              <article className="asset-card" key={String(a.id || i)}>
+              <article className="asset-card preset-card" key={String(a.id || i)}>
                 <div className="asset-preview">
                   {a.url ? (
                     <img src={a.url} alt={a.name} />

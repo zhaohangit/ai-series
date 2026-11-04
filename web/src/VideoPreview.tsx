@@ -15,6 +15,19 @@ import {
 import { api, json } from "./api";
 import { useApp, useResource, Loading, ErrorPanel, Empty, Modal } from "./App";
 import type { Project, Shot, Task } from "./types";
+function exportStatusLabel(status: string) {
+  return (
+    (
+      {
+        queued: "排队中",
+        running: "导出中",
+        succeeded: "已完成",
+        failed: "失败",
+        canceled: "已取消",
+      } as Record<string, string>
+    )[status] || status
+  );
+}
 export default function VideoPreview() {
   const { shotProjectId = "" } = useParams(),
     navigate = useNavigate(),
@@ -38,6 +51,9 @@ export default function VideoPreview() {
     [busy, setBusy] = useState(false);
   const sorted = [...shots.items].sort((a, b) => a.position - b.position),
     shot = sorted.find((s) => s.id === selected) || sorted[0];
+  const activeExport = tasks.items.find(
+    (t) => t.kind === "export" && ["queued", "running"].includes(t.status),
+  );
   useEffect(() => {
     if (tasks.items.some((t) => ["queued", "running"].includes(t.status))) {
       const id = setInterval(refresh, 2500);
@@ -101,6 +117,17 @@ export default function VideoPreview() {
         </button>
       </header>
       <section className="video-preview-center">
+        {activeExport && (
+          <div className="notice preview-task-notice">
+            <LoaderCircle className="spin" size={16} />
+            <span>
+              {exportStatusLabel(activeExport.status)} · 正在准备作品导出
+              {typeof activeExport.progress === "number"
+                ? `（${Math.round(activeExport.progress)}%）`
+                : ""}
+            </span>
+          </div>
+        )}
         <div className="preview-player">
           {shot?.video_url ? (
             <video key={shot.id} src={shot.video_url} controls autoPlay />
@@ -180,12 +207,7 @@ export default function VideoPreview() {
               <div key={t.id}>
                 <span>{new Date(t.created_at).toLocaleString("zh-CN")}</span>
                 <span className={`status ${t.status}`}>
-                  {{
-                    queued: "排队中",
-                    running: "导出中",
-                    succeeded: "已完成",
-                    failed: "失败",
-                  }[t.status] || t.status}
+                  {exportStatusLabel(t.status)}
                 </span>
                 <small>{t.error}</small>
                 {typeof t.result.url === "string" && (

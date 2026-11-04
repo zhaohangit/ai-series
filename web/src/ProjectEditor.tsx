@@ -35,6 +35,30 @@ const editorTabs = [
   { id: "subject", label: "角色场景", icon: Users },
   { id: "work", label: "分镜创作", icon: Film },
 ];
+const workflowTabs = [
+  { id: "style", label: "风格设置", icon: Palette },
+  { id: "subject", label: "角色场景", icon: Users },
+  { id: "work", label: "漫剧分镜", icon: Film },
+  { id: "video", label: "视频预览", icon: Video },
+];
+export function editorStepLabels(tab: string) {
+  return (tab === "script" ? editorTabs : workflowTabs).map(
+    (step) => step.label,
+  );
+}
+export function taskStatusLabel(status: string) {
+  return (
+    (
+      {
+        queued: "排队中",
+        running: "生成中",
+        succeeded: "已完成",
+        failed: "失败",
+        canceled: "已取消",
+      } as Record<string, string>
+    )[status] || status
+  );
+}
 export default function ProjectEditor() {
   const params = useParams(),
     id = params.id || params.seriesId || params.shotProjectId || "",
@@ -354,6 +378,23 @@ export default function ProjectEditor() {
           <span className="save-status">
             {dirty ? "有未保存修改" : "已保存到本地"}
           </span>
+          {tab !== "script" && (
+            <button
+              className="workflow-next"
+              onClick={() => {
+                if (tab === "style") nav(`/roleAndScene/${id}`);
+                else if (tab === "subject") nav(`/storyboard/${id}`);
+                else if (tab === "work") nav(`/video/preview/${id}`);
+              }}
+            >
+              {tab === "style"
+                ? "设置角色场景"
+                : tab === "subject"
+                  ? "编辑分镜"
+                  : "视频预览"}
+              <ArrowRight size={14} />
+            </button>
+          )}
           <button onClick={showHistory}>
             <History size={16} />
             生成记录
@@ -373,13 +414,20 @@ export default function ProjectEditor() {
         </div>
       </header>
       <nav className="editor-steps">
-        {editorTabs.map((t, i) => (
+        {(tab === "script" ? editorTabs : workflowTabs).map((t, i) => (
           <button
             key={t.id}
             className={tab === t.id ? "active" : ""}
             onClick={() => {
+              if (t.id === "video") {
+                nav(`/video/preview/${id}`);
+                return;
+              }
               setTab(t.id);
-              if (project.kind === "series") nav(`/series/${t.id}/${id}`);
+              if (t.id === "style") nav(`/style/${id}`);
+              else if (t.id === "subject") nav(`/roleAndScene/${id}`);
+              else if (t.id === "work") nav(`/storyboard/${id}`);
+              else if (project.kind === "series") nav(`/series/${t.id}/${id}`);
             }}
           >
             <span>{i + 1}</span>
@@ -555,9 +603,9 @@ export default function ProjectEditor() {
                   <h2>角色与场景</h2>
                   <p>为你的故事建立一致的角色与视觉素材</p>
                 </div>
-                <button onClick={() => nav("/material")}>
+                <button onClick={() => nav(`/storyboard/${id}`)}>
                   <Plus size={15} />
-                  管理素材
+                  编辑分镜
                 </button>
               </div>
               <div className="tabs sub-tabs">
@@ -819,7 +867,9 @@ export default function ProjectEditor() {
                       {new Date(t.created_at).toLocaleString("zh-CN")}
                     </small>
                   </span>
-                  <span className={`status ${t.status}`}>{t.status}</span>
+                  <span className={`status ${t.status}`}>
+                    {taskStatusLabel(t.status)}
+                  </span>
                   {t.error && <span className="danger-text">{t.error}</span>}
                 </div>
               ))
