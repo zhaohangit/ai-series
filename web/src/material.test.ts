@@ -23,4 +23,8 @@ describe("material preset catalogue", () => {
       "诡秘克系",
     ]);
   });
+
+  it("uses the reference display name for the renamed period style", () => {
+    expect(referencePresetItems([{ name: "年代都市" }])[0].name).toBe("年代海报");
+  });
 });

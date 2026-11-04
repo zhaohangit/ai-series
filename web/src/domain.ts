@@ -61,5 +61,9 @@ export const referencePresetStyleNames = [
 ];
 
 export function referencePresetItems(items: Array<Record<string, any>>) {
-  return items.filter((item) => referencePresetStyleNames.includes(String(item.name)));
+  return items
+    .map((item) =>
+      item.name === "年代都市" ? { ...item, name: "年代海报" } : item,
+    )
+    .filter((item) => referencePresetStyleNames.includes(String(item.name)));
 }
